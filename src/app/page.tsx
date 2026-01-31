@@ -680,23 +680,31 @@ export default function Home() {
               <button
                 onClick={downloadCSV}
                 disabled={validationErrors.length > 0}
-                className="btn-primary relative px-4 py-1.5 text-[12px] font-semibold bg-[var(--accent)] text-[var(--surface-0)] rounded-md hover:brightness-110 disabled:opacity-20 disabled:cursor-not-allowed transition-all duration-200"
+                className="group btn-primary relative px-5 py-2 text-[12px] font-semibold bg-[var(--accent)] text-[var(--surface-0)] rounded-md hover:brightness-110 disabled:opacity-20 disabled:cursor-not-allowed transition-all duration-200"
               >
-                <span className="relative z-10">Export CSV</span>
+                <span className="relative z-10 block leading-tight">Export Verified CSV</span>
+                <span className="relative z-10 block text-[9px] font-normal opacity-60 group-hover:opacity-80 leading-tight tracking-normal">{eventCount} validated event{eventCount !== 1 ? "s" : ""} · deterministic</span>
               </button>
             </div>
           </div>
 
-          {/* Export Integrity Proof */}
-          <div className="flex flex-wrap gap-x-5 gap-y-1.5 text-[11px] font-mono text-[var(--text-tertiary)]">
-            {["Protocol-defined events only", "No inferred balances or P&L", "Deterministic & replayable", "Ambiguous data blocked"].map((label, i) => (
-              <span key={i} className="flex items-center gap-1.5">
-                <svg className="w-3 h-3 text-[var(--accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                </svg>
-                {label}
-              </span>
-            ))}
+          {/* Integrity Panel */}
+          <div className="relative bg-[var(--surface-2)] border border-[var(--border-subtle)] rounded-lg px-6 py-5 overflow-hidden">
+            <div className="absolute top-0 left-0 right-0 h-px bg-[var(--border-strong)]" />
+            <p className="font-mono text-[12px] text-[var(--text-secondary)] tracking-widest uppercase mb-3">Export Integrity</p>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-2.5">
+              {[
+                "Protocol-defined accounting events only",
+                "No inferred balances or P&L",
+                "Deterministic & replayable exports",
+                "Ambiguous activity blocked by design",
+              ].map((claim, i) => (
+                <div key={i} className="flex items-start gap-2 text-[11px] text-[var(--text-tertiary)] leading-snug">
+                  <span className="mt-[5px] block w-1 h-1 rounded-full bg-[var(--text-tertiary)] opacity-60 shrink-0" />
+                  {claim}
+                </div>
+              ))}
+            </div>
           </div>
 
           {/* Validation errors */}
