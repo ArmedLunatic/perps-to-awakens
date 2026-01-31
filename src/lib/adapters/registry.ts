@@ -50,6 +50,18 @@ import {
 // CosmWasm perps — Mars (Stub)
 import { marsOsmosisAdapter, marsNeutronAdapter } from "./mars";
 
+// Tezos staking (Strict Mode)
+import { tezosStakingAdapter } from "./tezos-staking";
+
+// Cardano staking (Strict Mode, Partial Support)
+import { cardanoStakingAdapter } from "./cardano-staking";
+
+// NEAR Protocol staking (Strict Mode)
+import { nearStakingAdapter } from "./near-staking";
+
+// Ethereum Validator rewards (Partial Mode — CL only)
+import { ethValidatorAdapter } from "./eth-validators";
+
 /**
  * Central registry of all platform adapters.
  *
@@ -111,6 +123,18 @@ const adapters: PerpsAdapter[] = [
   // CosmWasm perps — Mars (Stub)
   marsOsmosisAdapter,
   marsNeutronAdapter,
+
+  // Tezos staking (Strict Mode)
+  tezosStakingAdapter,
+
+  // Cardano staking (Strict Mode, Partial Support — withdrawals only)
+  cardanoStakingAdapter,
+
+  // NEAR Protocol staking (Strict Mode)
+  nearStakingAdapter,
+
+  // Ethereum Validator rewards (Partial Mode — CL only)
+  ethValidatorAdapter,
 ];
 
 export function getAdapter(id: string): PerpsAdapter | undefined {
