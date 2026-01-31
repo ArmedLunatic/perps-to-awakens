@@ -9,15 +9,15 @@ Convert perpetuals trading history from multiple platforms into a CSV that impor
 | Hyperliquid    | **Full**        | `0x...` (42 chars) | —                                                     |
 | dYdX v4        | **Full**        | `dydx1...`         | Break-even closes tagged as opens (realizedPnl=0)     |
 | GMX (Arbitrum) | **Full**        | `0x...` (42 chars) | No discrete funding events (embedded in closes)       |
+| Aevo           | **Full**        | `0x...` (42 chars) | Requires API key + secret (read-only key recommended) |
+| Kwenta         | **Close-only**  | `0x...` (42 chars) | Closes only; no opens or funding (subgraph, Optimism) |
 | Jupiter Perps  | Stub            | Solana base58      | No trade history REST API; needs on-chain tx parsing  |
 | Drift          | Stub            | Solana base58      | No per-trade realized PnL in API                      |
-| Aevo           | Stub            | `0x...`            | Requires API key authentication                       |
 | Vertex         | Stub            | `0x...`            | No per-trade realized PnL (only balance snapshots)    |
 | MUX Protocol   | Stub            | `0x...`            | Aggregator — P&L fragmented across underlying DEXs    |
 | Osmosis Perps  | Stub            | `osmo1...`         | No aggregated indexer; per-market CosmWasm queries     |
-| Kwenta         | Stub            | `0x...`            | Synthetix funding model needs fundingIndex inference   |
 | Synthetix v3   | Stub            | `0x...`            | Account NFT resolution + velocity funding model        |
-| Perennial      | Stub            | `0x...`            | Unique maker/long/short position model                 |
+| Perennial      | Stub            | `0x...`            | No public subgraph with explicit per-trade PnL         |
 
 ### Why are some platforms stubbed?
 
@@ -123,13 +123,15 @@ src/
       gmx.ts            # Full — GMX v2 Subsquid GraphQL (trade actions)
       jupiter.ts        # Stub — no trade history API
       drift.ts          # Stub — no per-trade realized PnL
-      aevo.ts           # Stub — requires API key auth
+      aevo.ts           # Full — Aevo REST API (requires API key + secret)
+      kwenta.ts         # Close-only — Kwenta subgraph (Optimism, closes with PnL)
+      jupiter.ts        # Stub — no trade history API
+      drift.ts          # Stub — no per-trade realized PnL
       vertex.ts         # Stub — no per-trade realized PnL
       mux.ts            # Stub — aggregator, fragmented data
       osmosis.ts        # Stub — no aggregated indexer
-      kwenta.ts         # Stub — Synthetix funding model
       synthetix.ts      # Stub — account NFT + velocity funding
-      perennial.ts      # Stub — unique position model
+      perennial.ts      # Stub — no public subgraph endpoint
   components/
     EventTable.tsx      # Sortable preview table with color-coded tags
   app/
@@ -148,6 +150,19 @@ src/
 - GMX does not emit discrete funding payment events. Borrowing and funding fees are settled atomically when positions change. No `funding_payment` rows are generated.
 - Fee is reported as 0 because GMX fees (position fee + borrowing fee + funding fee) are already reflected in `basePnlUsd`. Reporting them separately would double-count.
 - Market symbols depend on the GMX token info API. If the API is unavailable, shortened addresses are used as fallback.
+
+### Aevo
+- Requires API key and secret for trade history access. Create a read-only key at https://app.aevo.xyz/settings/api-keys.
+- API credentials are sent server-side to Aevo's API and are never stored or logged.
+- Only perpetual instruments (`*-PERP`) are processed. Options and spot trades are skipped.
+- Funding payments are sourced from the same trade-history endpoint filtered by trade_type.
+
+### Kwenta (Close-only mode)
+- Only exports `close_position` events where the subgraph reports non-zero realized PnL.
+- Does NOT export open positions (no reliable open/close distinction without full position state).
+- Does NOT export funding payments (Synthetix funding is accrued via fundingIndex, not discrete events).
+- The Graph hosted service is deprecated — the subgraph URL may need updating.
+- Users may need to enter their Kwenta smart margin account address, not their EOA.
 
 ### General
 - All adapters paginate up to platform-specific limits (typically 50-100 pages). Accounts with extremely long histories may be truncated.

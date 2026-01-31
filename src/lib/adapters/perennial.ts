@@ -1,36 +1,34 @@
 import { PerpsAdapter } from "../core/types";
 
 /**
- * Perennial adapter — STUB (Tier 3, no logic).
+ * Perennial adapter — STUB.
  *
- * Perennial is an on-chain derivatives protocol deployed on Arbitrum.
- * It uses an intent-based architecture with a keeper network.
+ * Perennial is an on-chain derivatives protocol on Arbitrum using an
+ * intent-based architecture with a keeper network and Pyth/Chainlink oracles.
  *
- * Expected endpoints:
- *   - Perennial Subgraph (Arbitrum):
- *     Entities: AccountPositionProcessed, Updated, Liquidation,
- *     PositionOpened, PositionClosed
- *   - Perennial SDK (@perennial/sdk):
- *     Provides typed access to market and position data
+ * Why this is not implemented:
+ *   - No confirmed public subgraph endpoint with explicit per-trade realized PnL
+ *   - The Perennial SDK (sdk-docs.perennial.finance) provides historicalPositions()
+ *     and tradeHistory() methods, but these require SDK initialization with a
+ *     private graphUrl parameter that is not publicly documented
+ *   - AccumulationResult fields (pnl, collateral, funding, interest, fee) may
+ *     exist in the subgraph schema but could not be verified against a live endpoint
+ *   - Perennial's unique position model (maker/long/short deltas) means position
+ *     classification cannot be safely done without understanding the full state
  *
- * Event types needed:
- *   - AccountPositionProcessed: account, market, fromPosition, toPosition,
- *     accumulationResult (collateral, pnl, funding, interest, fee)
- *   - Updated: account, market, order (maker/long/short delta), collateral
- *   - Liquidation: account, market, liquidator, fee
+ * What would be needed to implement:
+ *   1. Confirmed subgraph URL for perennial-v2-subgraph on Arbitrum
+ *   2. Verification that AccumulationResult.pnl is the explicit per-trade realized PnL
+ *   3. Query AccountPositionProcessed events filtered to taker positions only
+ *   4. Market ID → asset symbol mapping (ETH, BTC, SOL, etc.)
+ *   5. DSU (Digital Standard Unit) as settlement token
+ *   6. Ignore maker positions (different P&L model)
  *
- * Known pitfalls:
- *   - Perennial uses a unique position accounting model:
- *     Positions are "maker", "long", or "short" with separate deltas
- *   - P&L is computed in AccumulationResult which includes:
- *     collateral change, realized PnL, accrued funding, accrued interest, fees
- *     These are all separate fields, but they're settled together
- *   - Partial close: toPosition.magnitude < fromPosition.magnitude
- *   - Funding is continuous (accumulated per oracle update)
- *   - Interest accrual is separate from funding
- *   - DSU (Digital Standard Unit) is the collateral token
- *   - Market IDs must be resolved to asset symbols
- *   - Oracle-based settlement (Pyth, Chainlink)
+ * Resources:
+ *   - SDK docs: https://sdk-docs.perennial.finance/
+ *   - SDK source: https://github.com/equilibria-xyz/perennial-v2-sdk-ts
+ *   - Protocol: https://github.com/equilibria-xyz/perennial-v2
+ *   - DSU docs: https://docs.dsu.money/
  *
  * Account: Ethereum address (0x...) on Arbitrum.
  */
@@ -41,9 +39,9 @@ export const perennialAdapter: PerpsAdapter = {
   async getEvents(): Promise<never> {
     throw new Error(
       "Perennial adapter is not implemented. " +
-      "Requires subgraph integration with Perennial's unique position model " +
-      "(maker/long/short deltas) and AccumulationResult parsing. " +
-      "See source comments for endpoint details and known pitfalls."
+        "No confirmed public subgraph endpoint with explicit per-trade realized PnL. " +
+        "Perennial's SDK requires a private graphUrl for position history queries. " +
+        "See source comments for details on what would be needed."
     );
   },
 };

@@ -2,13 +2,13 @@ import { PerpsAdapter } from "../core/types";
 import { hyperliquidAdapter } from "./hyperliquid";
 import { dydxAdapter } from "./dydx";
 import { gmxAdapter } from "./gmx";
+import { aevoAdapter } from "./aevo";
+import { kwentaAdapter } from "./kwenta";
 import { jupiterAdapter } from "./jupiter";
 import { driftAdapter } from "./drift";
-import { aevoAdapter } from "./aevo";
 import { vertexAdapter } from "./vertex";
 import { muxAdapter } from "./mux";
 import { osmosisAdapter } from "./osmosis";
-import { kwentaAdapter } from "./kwenta";
 import { synthetixAdapter } from "./synthetix";
 import { perennialAdapter } from "./perennial";
 
@@ -21,23 +21,23 @@ import { perennialAdapter } from "./perennial";
  * 3. Add to PLATFORMS in src/app/page.tsx with ready: true/false
  */
 const adapters: PerpsAdapter[] = [
-  // Tier 1 — Fully implemented
+  // Fully implemented — wallet address only
   hyperliquidAdapter,
   dydxAdapter,
   gmxAdapter,
 
-  // Tier 1 — Stubbed (missing required data from platform APIs)
-  jupiterAdapter,
-  driftAdapter,
+  // Fully implemented — requires API key
   aevoAdapter,
 
-  // Tier 2 — Stubbed (insufficient realized P&L data)
+  // Close-only mode — subgraph, no opens or funding
+  kwentaAdapter,
+
+  // Stubbed — missing required data from platform APIs
+  jupiterAdapter,
+  driftAdapter,
   vertexAdapter,
   muxAdapter,
   osmosisAdapter,
-
-  // Tier 3 — Stubbed (no logic, documentation only)
-  kwentaAdapter,
   synthetixAdapter,
   perennialAdapter,
 ];

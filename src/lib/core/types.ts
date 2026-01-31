@@ -17,6 +17,14 @@ export type AwakensEvent = {
 };
 
 /**
+ * Options passed to adapters that require authentication or extra config.
+ */
+export type AdapterOptions = {
+  apiKey?: string;
+  apiSecret?: string;
+};
+
+/**
  * Adapter interface. Every perpetuals platform adapter MUST implement this.
  */
 export interface PerpsAdapter {
@@ -24,8 +32,10 @@ export interface PerpsAdapter {
   id: string;
   /** Human-readable platform name */
   name: string;
+  /** Whether the adapter requires API key authentication */
+  requiresAuth?: boolean;
   /** Fetch and normalize all perpetuals events for the given account */
-  getEvents(account: string): Promise<AwakensEvent[]>;
+  getEvents(account: string, options?: AdapterOptions): Promise<AwakensEvent[]>;
 }
 
 /**

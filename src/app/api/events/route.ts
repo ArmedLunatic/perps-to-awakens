@@ -5,7 +5,7 @@ import { validateEvents } from "@/lib/core/validation";
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { platform, account } = body;
+    const { platform, account, apiKey, apiSecret } = body;
 
     if (!platform || typeof platform !== "string") {
       return NextResponse.json({ error: "Missing or invalid 'platform' field" }, { status: 400 });
@@ -19,7 +19,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: `Unknown platform: ${platform}` }, { status: 400 });
     }
 
-    const events = await adapter.getEvents(account.trim());
+    // Build options for adapters that require authentication
+    const options =
+      apiKey || apiSecret
+        ? {
+            apiKey: typeof apiKey === "string" ? apiKey : undefined,
+            apiSecret: typeof apiSecret === "string" ? apiSecret : undefined,
+          }
+        : undefined;
+
+    const events = await adapter.getEvents(account.trim(), options);
     const validationErrors = validateEvents(events);
 
     return NextResponse.json({

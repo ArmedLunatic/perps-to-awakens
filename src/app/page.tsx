@@ -6,20 +6,22 @@ import { generateCSV } from "@/lib/core/csv";
 import EventTable from "@/components/EventTable";
 
 const PLATFORMS = [
-  // Fully implemented
-  { id: "hyperliquid", name: "Hyperliquid", ready: true, placeholder: "0x...", hint: "Ethereum address (0x...)" },
-  { id: "dydx", name: "dYdX v4", ready: true, placeholder: "dydx1...", hint: "dYdX bech32 address" },
-  { id: "gmx", name: "GMX", ready: true, placeholder: "0x...", hint: "Ethereum address (Arbitrum)" },
+  // Fully implemented — wallet address only
+  { id: "hyperliquid", name: "Hyperliquid", ready: true, placeholder: "0x...", hint: "Ethereum address (0x...)", requiresAuth: false },
+  { id: "dydx", name: "dYdX v4", ready: true, placeholder: "dydx1...", hint: "dYdX bech32 address", requiresAuth: false },
+  { id: "gmx", name: "GMX", ready: true, placeholder: "0x...", hint: "Ethereum address (Arbitrum)", requiresAuth: false },
+  // Fully implemented — requires API key
+  { id: "aevo", name: "Aevo", ready: true, placeholder: "0x...", hint: "Ethereum address + API key", requiresAuth: true },
+  // Close-only mode
+  { id: "kwenta", name: "Kwenta", ready: true, placeholder: "0x...", hint: "Optimism address (close-only mode)", requiresAuth: false },
   // Stubbed — missing API data
-  { id: "jupiter", name: "Jupiter Perps", ready: false, placeholder: "", hint: "No trade history API" },
-  { id: "drift", name: "Drift", ready: false, placeholder: "", hint: "No per-trade P&L in API" },
-  { id: "aevo", name: "Aevo", ready: false, placeholder: "", hint: "Requires API key auth" },
-  { id: "vertex", name: "Vertex", ready: false, placeholder: "", hint: "No per-trade P&L" },
-  { id: "mux", name: "MUX Protocol", ready: false, placeholder: "", hint: "Aggregator — fragmented data" },
-  { id: "osmosis", name: "Osmosis Perps", ready: false, placeholder: "", hint: "No indexer available" },
-  { id: "kwenta", name: "Kwenta", ready: false, placeholder: "", hint: "Synthetix funding model" },
-  { id: "synthetix", name: "Synthetix v3", ready: false, placeholder: "", hint: "Account NFT resolution" },
-  { id: "perennial", name: "Perennial", ready: false, placeholder: "", hint: "Unique position model" },
+  { id: "jupiter", name: "Jupiter Perps", ready: false, placeholder: "", hint: "No trade history API", requiresAuth: false },
+  { id: "drift", name: "Drift", ready: false, placeholder: "", hint: "No per-trade P&L in API", requiresAuth: false },
+  { id: "vertex", name: "Vertex", ready: false, placeholder: "", hint: "No per-trade P&L", requiresAuth: false },
+  { id: "mux", name: "MUX Protocol", ready: false, placeholder: "", hint: "Aggregator — fragmented data", requiresAuth: false },
+  { id: "osmosis", name: "Osmosis Perps", ready: false, placeholder: "", hint: "No indexer available", requiresAuth: false },
+  { id: "synthetix", name: "Synthetix v3", ready: false, placeholder: "", hint: "Account NFT resolution", requiresAuth: false },
+  { id: "perennial", name: "Perennial", ready: false, placeholder: "", hint: "No public subgraph endpoint", requiresAuth: false },
 ];
 
 type Step = "select" | "input" | "loading" | "preview";
@@ -28,6 +30,8 @@ export default function Home() {
   const [step, setStep] = useState<Step>("select");
   const [platform, setPlatform] = useState<string>("");
   const [account, setAccount] = useState<string>("");
+  const [apiKey, setApiKey] = useState<string>("");
+  const [apiSecret, setApiSecret] = useState<string>("");
   const [events, setEvents] = useState<AwakensEvent[]>([]);
   const [validationErrors, setValidationErrors] = useState<ValidationError[]>([]);
   const [error, setError] = useState<string>("");
@@ -45,10 +49,19 @@ export default function Home() {
     setError("");
 
     try {
+      const body: Record<string, string> = {
+        platform,
+        account: account.trim(),
+      };
+
+      // Include API credentials if provided
+      if (apiKey.trim()) body.apiKey = apiKey.trim();
+      if (apiSecret.trim()) body.apiSecret = apiSecret.trim();
+
       const res = await fetch("/api/events", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ platform, account: account.trim() }),
+        body: JSON.stringify(body),
       });
 
       const data = await res.json();
@@ -86,6 +99,8 @@ export default function Home() {
     setStep("select");
     setPlatform("");
     setAccount("");
+    setApiKey("");
+    setApiSecret("");
     setEvents([]);
     setValidationErrors([]);
     setError("");
@@ -94,6 +109,7 @@ export default function Home() {
 
   const currentPlatform = PLATFORMS.find((p) => p.id === platform);
   const platformName = currentPlatform?.name || platform;
+  const needsAuth = currentPlatform?.requiresAuth || false;
 
   return (
     <main className="max-w-7xl mx-auto px-4 py-8">
@@ -137,9 +153,14 @@ export default function Home() {
                   : "border-zinc-800/50 opacity-40 cursor-not-allowed"
               }`}
             >
-              <div className="font-semibold">{p.name}</div>
+              <div className="font-semibold">
+                {p.name}
+                {p.requiresAuth && (
+                  <span className="ml-2 text-xs font-normal text-amber-500">API key</span>
+                )}
+              </div>
               <div className="text-xs text-zinc-500 mt-1">
-                {p.ready ? "Ready" : p.hint || "Coming soon"}
+                {p.ready ? (p.hint || "Ready") : p.hint || "Coming soon"}
               </div>
             </button>
           ))}
@@ -157,19 +178,62 @@ export default function Home() {
               type="text"
               value={account}
               onChange={(e) => setAccount(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && fetchEvents()}
+              onKeyDown={(e) => e.key === "Enter" && !needsAuth && fetchEvents()}
               placeholder={currentPlatform?.placeholder || "0x..."}
               spellCheck={false}
               className="flex-1 px-3 py-2.5 bg-zinc-900 border border-zinc-700 rounded-lg font-mono text-sm focus:outline-none focus:border-zinc-500 placeholder:text-zinc-600"
             />
-            <button
-              onClick={fetchEvents}
-              disabled={!account.trim()}
-              className="px-5 py-2.5 bg-zinc-100 text-zinc-900 rounded-lg font-semibold text-sm hover:bg-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-            >
-              Fetch
-            </button>
+            {!needsAuth && (
+              <button
+                onClick={fetchEvents}
+                disabled={!account.trim()}
+                className="px-5 py-2.5 bg-zinc-100 text-zinc-900 rounded-lg font-semibold text-sm hover:bg-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                Fetch
+              </button>
+            )}
           </div>
+
+          {/* API key fields for authenticated adapters */}
+          {needsAuth && (
+            <div className="mt-4 space-y-3">
+              <div className="p-3 bg-amber-950/30 border border-amber-900/40 rounded-lg text-xs text-amber-400">
+                Your API credentials are sent directly to {platformName}&apos;s API from our server
+                and are never stored or logged. Create a read-only API key for safety.
+              </div>
+              <div>
+                <label className="block text-xs text-zinc-500 mb-1">API Key</label>
+                <input
+                  type="text"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder="Your API key"
+                  spellCheck={false}
+                  className="w-full px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-lg font-mono text-sm focus:outline-none focus:border-zinc-500 placeholder:text-zinc-600"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-zinc-500 mb-1">API Secret</label>
+                <input
+                  type="password"
+                  value={apiSecret}
+                  onChange={(e) => setApiSecret(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && fetchEvents()}
+                  placeholder="Your API secret"
+                  spellCheck={false}
+                  className="w-full px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-lg font-mono text-sm focus:outline-none focus:border-zinc-500 placeholder:text-zinc-600"
+                />
+              </div>
+              <button
+                onClick={fetchEvents}
+                disabled={!account.trim() || !apiKey.trim() || !apiSecret.trim()}
+                className="w-full px-5 py-2.5 bg-zinc-100 text-zinc-900 rounded-lg font-semibold text-sm hover:bg-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                Fetch
+              </button>
+            </div>
+          )}
+
           <button onClick={reset} className="mt-3 text-xs text-zinc-500 hover:text-zinc-300">
             ← Back
           </button>
