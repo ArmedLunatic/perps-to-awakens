@@ -15,7 +15,12 @@ const PLATFORM_MODES: Record<string, "strict" | "assisted" | "partial" | "blocke
   // Partial mode platforms (limited but safe)
   "cardano-staking": "partial",
   "eth-validator": "partial",
-  // Strict mode (default for all others)
+  "solana-staking": "partial",
+  "kadena-mining": "partial",
+  "aptos-staking": "partial",
+  "sui-staking": "partial",
+  "glue-network": "partial",
+  // Strict mode (default for all others — includes algorand, avalanche)
 };
 
 // Usecase definitions
@@ -32,13 +37,13 @@ const USECASES: { id: Usecase; label: string; description: string; families: str
     id: "staking",
     label: "Staking & Protocol Rewards",
     description: "Export protocol-defined rewards and penalties",
-    families: ["substrate-staking", "cosmos-staking", "tezos-staking", "near-staking"],
+    families: ["substrate-staking", "cosmos-staking", "tezos-staking", "near-staking", "algorand-staking", "avalanche-staking"],
   },
   {
     id: "advanced",
     label: "Advanced / Partial Support",
     description: "Niche chains with explicit but limited accounting events",
-    families: ["cardano-staking", "eth-validator"],
+    families: ["cardano-staking", "eth-validator", "solana-staking", "kadena-mining", "aptos-staking", "sui-staking", "glue-network"],
   },
 ];
 
@@ -91,6 +96,27 @@ const PLATFORMS = [
   // --- Ethereum Validator (Partial) ---
   { id: "eth-validator", name: "Ethereum Validator", ready: true, placeholder: "12345", hint: "Validator index or pubkey — consensus-layer rewards only", requiresAuth: false, family: "eth-validator" },
 
+  // --- Algorand Staking (Strict) ---
+  { id: "algorand-staking", name: "Algorand", ready: true, placeholder: "ABC...XYZ", hint: "Algorand address — participation rewards only", requiresAuth: false, family: "algorand-staking" },
+
+  // --- Avalanche P-Chain Staking (Strict) ---
+  { id: "avalanche-staking", name: "Avalanche P-Chain", ready: true, placeholder: "P-avax1...", hint: "P-chain address — validator/delegator rewards only", requiresAuth: false, family: "avalanche-staking" },
+
+  // --- Solana Staking (Partial) ---
+  { id: "solana-staking", name: "Solana Staking", ready: true, placeholder: "Stake...", hint: "Stake account — epoch reward credits only (no balance inference)", requiresAuth: false, family: "solana-staking" },
+
+  // --- Kadena Mining (Partial) ---
+  { id: "kadena-mining", name: "Kadena", ready: true, placeholder: "k:abc123...", hint: "Kadena account — explicit coinbase rewards only", requiresAuth: false, family: "kadena-mining" },
+
+  // --- Aptos Staking (Partial) ---
+  { id: "aptos-staking", name: "Aptos", ready: true, placeholder: "0x...", hint: "Aptos address — explicit staking reward events only", requiresAuth: false, family: "aptos-staking" },
+
+  // --- Sui Staking (Partial) ---
+  { id: "sui-staking", name: "Sui", ready: true, placeholder: "0x...", hint: "Sui address — staking reward withdrawals only", requiresAuth: false, family: "sui-staking" },
+
+  // --- Glue Network (Partial) ---
+  { id: "glue-network", name: "Glue Network", ready: true, placeholder: "0x...", hint: "Explicit protocol rewards and settlement events only", requiresAuth: false, family: "glue-network" },
+
   // --- CosmWasm Perps — Mars (Stub) ---
   { id: "mars-osmosis", name: "Mars (Osmosis)", ready: false, placeholder: "", hint: "No confirmed per-trade realized PnL", requiresAuth: false, family: "cosmwasm-perps" },
   { id: "mars-neutron", name: "Mars (Neutron)", ready: false, placeholder: "", hint: "No confirmed per-trade realized PnL", requiresAuth: false, family: "cosmwasm-perps" },
@@ -126,6 +152,41 @@ const PLATFORM_DOCS: Record<string, { supported: string[]; blocked: string[]; wh
     supported: ["Consensus-layer rewards (attestation, proposer, sync committee)"],
     blocked: ["Execution-layer rewards (tx fees, priority fees)", "MEV rewards", "Withdrawal events", "Restaking rewards (EigenLayer)"],
     why: "Only CL rewards are protocol-defined with deterministic attribution. EL rewards require inference.",
+  },
+  "algorand-staking": {
+    supported: ["Explicit participation rewards (protocol-emitted per-account events)"],
+    blocked: ["DeFi activity", "Token transfers", "Balance inference", "ASA rewards", "Governance rewards (off-chain)"],
+    why: "Algorand emits explicit reward events via the Indexer. Governance rewards are off-chain and excluded.",
+  },
+  "avalanche-staking": {
+    supported: ["Validator staking rewards (explicit reward UTXOs)", "Delegator staking rewards"],
+    blocked: ["Subnet DeFi", "C-chain/X-chain transfers", "Trade inference", "Liquid staking (sAVAX)"],
+    why: "Avalanche P-chain emits explicit reward UTXOs when validation/delegation periods end.",
+  },
+  "solana-staking": {
+    supported: ["Explicit epoch reward credits (via getInflationReward RPC)"],
+    blocked: ["Balance-delta epoch inference", "Swaps / DEX activity", "NFT activity", "Liquid staking (mSOL, jitoSOL)", "MEV / Jito tips"],
+    why: "Solana RPC returns explicit per-account reward amounts per epoch. We do NOT infer from balance changes.",
+  },
+  "kadena-mining": {
+    supported: ["Explicit coinbase rewards where miner address is protocol-defined"],
+    blocked: ["Per-account rewards not explicit in block events", "Gas fees as income", "DeFi activity", "Balance inference"],
+    why: "Kadena emits coinbase events with explicit miner address and amount. Only these are exported.",
+  },
+  "aptos-staking": {
+    supported: ["Explicit DistributeRewardsEvent from staking module"],
+    blocked: ["DeFi activity", "Token transfers", "Balance inference", "Liquid staking rewards"],
+    why: "Aptos emits reward distribution events on the staking module with explicit amounts.",
+  },
+  "sui-staking": {
+    supported: ["Staking reward withdrawals (explicit protocol events)"],
+    blocked: ["DeFi activity", "Token transfers", "Balance inference", "Liquid staking rewards (afSUI, haSUI)"],
+    why: "Sui emits explicit events when staking rewards are withdrawn. Estimated rewards are intentionally excluded.",
+  },
+  "glue-network": {
+    supported: ["Explicit protocol reward distributions", "Explicit incentive claims", "Explicit settlement events (realized per-account values only)"],
+    blocked: ["Trade reconstruction", "Swap inference", "Balance-based activity", "Cross-chain message value estimation", "LP position tracking"],
+    why: "Only protocol-emitted per-account events are exported. All inference-based activity is blocked.",
   },
 };
 

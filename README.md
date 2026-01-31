@@ -30,6 +30,10 @@ This tool only exports data when the platform API provides **explicit, per-trade
 
 If a platform doesn't expose the required fields, the adapter throws an error explaining exactly what's missing.
 
+### Newly supported chains
+
+Algorand (strict), Avalanche P-Chain (strict), Solana (partial), Kadena (partial), Aptos (partial), Sui (partial), and Glue Network (partial) are now supported for staking and protocol reward exports. Each adapter exports only explicit, protocol-emitted accounting events — no balance inference, no heuristics. Chains marked partial have intentionally limited scope; see the in-app documentation for exactly what is supported and blocked per chain.
+
 ## Awakens CSV Format
 
 ```

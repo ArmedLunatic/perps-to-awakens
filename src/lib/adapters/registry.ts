@@ -62,6 +62,27 @@ import { nearStakingAdapter } from "./near-staking";
 // Ethereum Validator rewards (Partial Mode — CL only)
 import { ethValidatorAdapter } from "./eth-validators";
 
+// Algorand staking (Strict Mode)
+import { algorandStakingAdapter } from "./algorand-staking";
+
+// Avalanche P-Chain staking (Strict Mode)
+import { avalancheStakingAdapter } from "./avalanche-staking";
+
+// Solana staking (Partial Mode)
+import { solanaStakingAdapter } from "./solana-staking";
+
+// Kadena mining rewards (Partial Mode)
+import { kadenaStakingAdapter } from "./kadena-staking";
+
+// Aptos staking (Partial Mode)
+import { aptosStakingAdapter } from "./aptos-staking";
+
+// Sui staking (Partial Mode)
+import { suiStakingAdapter } from "./sui-staking";
+
+// Glue Network (Partial Mode)
+import { glueNetworkAdapter } from "./glue-network";
+
 /**
  * Central registry of all platform adapters.
  *
@@ -135,6 +156,27 @@ const adapters: PerpsAdapter[] = [
 
   // Ethereum Validator rewards (Partial Mode — CL only)
   ethValidatorAdapter,
+
+  // Algorand staking (Strict Mode)
+  algorandStakingAdapter,
+
+  // Avalanche P-Chain staking (Strict Mode)
+  avalancheStakingAdapter,
+
+  // Solana staking (Partial Mode)
+  solanaStakingAdapter,
+
+  // Kadena mining rewards (Partial Mode)
+  kadenaStakingAdapter,
+
+  // Aptos staking (Partial Mode)
+  aptosStakingAdapter,
+
+  // Sui staking (Partial Mode)
+  suiStakingAdapter,
+
+  // Glue Network (Partial Mode)
+  glueNetworkAdapter,
 ];
 
 export function getAdapter(id: string): PerpsAdapter | undefined {
