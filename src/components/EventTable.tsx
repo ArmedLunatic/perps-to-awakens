@@ -28,6 +28,8 @@ function TagBadge({ tag }: { tag: string }) {
     open_position: "bg-blue-900/50 text-blue-300 border-blue-700/50",
     close_position: "bg-emerald-900/50 text-emerald-300 border-emerald-700/50",
     funding_payment: "bg-amber-900/50 text-amber-300 border-amber-700/50",
+    staking_reward: "bg-violet-900/50 text-violet-300 border-violet-700/50",
+    slashing: "bg-rose-900/50 text-rose-300 border-rose-700/50",
   };
   return (
     <span className={`px-2 py-0.5 rounded text-xs font-mono border ${colors[tag] || "bg-zinc-800 text-zinc-400"}`}>

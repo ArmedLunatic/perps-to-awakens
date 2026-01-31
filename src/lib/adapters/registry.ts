@@ -12,6 +12,44 @@ import { osmosisAdapter } from "./osmosis";
 import { synthetixAdapter } from "./synthetix";
 import { perennialAdapter } from "./perennial";
 
+// Substrate staking (Strict Mode)
+import {
+  polkadotStakingAdapter,
+  kusamaStakingAdapter,
+  westendStakingAdapter,
+  rococoStakingAdapter,
+  statemintStakingAdapter,
+  statemineStakingAdapter,
+  bittensorStakingAdapter,
+  hydradxStakingAdapter,
+  astarStakingAdapter,
+  shidenStakingAdapter,
+  moonbeamStakingAdapter,
+  moonriverStakingAdapter,
+} from "./substrate-staking";
+
+// Cosmos SDK staking (Strict Mode)
+import {
+  cosmosHubStakingAdapter,
+  osmosisStakingAdapter,
+  neutronStakingAdapter,
+  junoStakingAdapter,
+  strideStakingAdapter,
+  akashStakingAdapter,
+  secretStakingAdapter,
+} from "./cosmos-staking";
+
+// CosmWasm perps — Levana (Assisted Mode)
+import {
+  levanaOsmosisAdapter,
+  levanaInjectiveAdapter,
+  levanaNeutronAdapter,
+  levanaJunoAdapter,
+} from "./levana";
+
+// CosmWasm perps — Mars (Stub)
+import { marsOsmosisAdapter, marsNeutronAdapter } from "./mars";
+
 /**
  * Central registry of all platform adapters.
  *
@@ -40,6 +78,39 @@ const adapters: PerpsAdapter[] = [
   osmosisAdapter,
   synthetixAdapter,
   perennialAdapter,
+
+  // Substrate staking (Strict Mode)
+  polkadotStakingAdapter,
+  kusamaStakingAdapter,
+  westendStakingAdapter,
+  rococoStakingAdapter,
+  statemintStakingAdapter,
+  statemineStakingAdapter,
+  bittensorStakingAdapter,
+  hydradxStakingAdapter,
+  astarStakingAdapter,
+  shidenStakingAdapter,
+  moonbeamStakingAdapter,
+  moonriverStakingAdapter,
+
+  // Cosmos SDK staking (Strict Mode)
+  cosmosHubStakingAdapter,
+  osmosisStakingAdapter,
+  neutronStakingAdapter,
+  junoStakingAdapter,
+  strideStakingAdapter,
+  akashStakingAdapter,
+  secretStakingAdapter,
+
+  // CosmWasm perps — Levana (Assisted Mode)
+  levanaOsmosisAdapter,
+  levanaInjectiveAdapter,
+  levanaNeutronAdapter,
+  levanaJunoAdapter,
+
+  // CosmWasm perps — Mars (Stub)
+  marsOsmosisAdapter,
+  marsNeutronAdapter,
 ];
 
 export function getAdapter(id: string): PerpsAdapter | undefined {

@@ -1,6 +1,12 @@
 import { AwakensEvent, ValidationError } from "./types";
 
-const VALID_TAGS = new Set(["open_position", "close_position", "funding_payment"]);
+const VALID_TAGS = new Set([
+  "open_position",
+  "close_position",
+  "funding_payment",
+  "staking_reward",
+  "slashing",
+]);
 
 const DATE_REGEX = /^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2}$/;
 
@@ -108,8 +114,14 @@ export function validateEvent(event: AwakensEvent, rowIndex: number): Validation
     });
   }
 
-  // Payment token required for close_position and funding_payment
-  if ((event.tag === "close_position" || event.tag === "funding_payment") && !event.paymentToken) {
+  // Payment token required for close_position, funding_payment, staking_reward, slashing
+  if (
+    (event.tag === "close_position" ||
+      event.tag === "funding_payment" ||
+      event.tag === "staking_reward" ||
+      event.tag === "slashing") &&
+    !event.paymentToken
+  ) {
     errors.push({
       row: rowIndex,
       field: "paymentToken",
@@ -126,6 +138,46 @@ export function validateEvent(event: AwakensEvent, rowIndex: number): Validation
       message: "P&L must be 0 for open_position events",
       value: event.pnl.toString(),
     });
+  }
+
+  // staking_reward: pnl must be > 0, fee must be 0
+  if (event.tag === "staking_reward") {
+    if (event.pnl <= 0) {
+      errors.push({
+        row: rowIndex,
+        field: "pnl",
+        message: "P&L must be > 0 for staking_reward events",
+        value: event.pnl.toString(),
+      });
+    }
+    if (event.fee !== 0) {
+      errors.push({
+        row: rowIndex,
+        field: "fee",
+        message: "Fee must be 0 for staking_reward events",
+        value: event.fee.toString(),
+      });
+    }
+  }
+
+  // slashing: pnl must be < 0, fee must be 0
+  if (event.tag === "slashing") {
+    if (event.pnl >= 0) {
+      errors.push({
+        row: rowIndex,
+        field: "pnl",
+        message: "P&L must be < 0 for slashing events",
+        value: event.pnl.toString(),
+      });
+    }
+    if (event.fee !== 0) {
+      errors.push({
+        row: rowIndex,
+        field: "fee",
+        message: "Fee must be 0 for slashing events",
+        value: event.fee.toString(),
+      });
+    }
   }
 
   return errors;
