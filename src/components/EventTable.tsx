@@ -41,43 +41,43 @@ function getEventCategory(tag: string): EventCategory {
 function TagBadge({ tag }: { tag: string }) {
   const config: Record<string, { bg: string; text: string; border: string; dot: string; tooltip?: string }> = {
     open_position: {
-      bg: "bg-blue-50",
-      text: "text-blue-700",
-      border: "border-blue-200",
-      dot: "bg-blue-500",
+      bg: "bg-blue-500/10",
+      text: "text-blue-400",
+      border: "border-blue-500/20",
+      dot: "bg-blue-400",
       tooltip: "Opening a new position",
     },
     close_position: {
-      bg: "bg-teal-50",
-      text: "text-teal-700",
-      border: "border-teal-200",
-      dot: "bg-teal-500",
+      bg: "bg-teal-500/10",
+      text: "text-teal-400",
+      border: "border-teal-500/20",
+      dot: "bg-teal-400",
       tooltip: "Closing a position",
     },
     funding_payment: {
-      bg: "bg-amber-50",
-      text: "text-amber-700",
-      border: "border-amber-200",
-      dot: "bg-amber-500",
+      bg: "bg-amber-500/10",
+      text: "text-amber-400",
+      border: "border-amber-500/20",
+      dot: "bg-amber-400",
       tooltip: "Funding payment (periodic fee)",
     },
     staking_reward: {
-      bg: "bg-violet-50",
-      text: "text-violet-700",
-      border: "border-violet-200",
-      dot: "bg-violet-500",
+      bg: "bg-violet-500/10",
+      text: "text-violet-400",
+      border: "border-violet-500/20",
+      dot: "bg-violet-400",
       tooltip: "Staking reward: income from validating or delegating",
     },
     slashing: {
-      bg: "bg-rose-50",
-      text: "text-rose-700",
-      border: "border-rose-200",
-      dot: "bg-rose-500",
+      bg: "bg-rose-500/10",
+      text: "text-rose-400",
+      border: "border-rose-500/20",
+      dot: "bg-rose-400",
       tooltip: "Slashing: penalty for validator misbehavior",
     },
   };
 
-  const style = config[tag] || { bg: "bg-zinc-100", text: "text-zinc-600", border: "border-zinc-200", dot: "bg-zinc-400" };
+  const style = config[tag] || { bg: "bg-zinc-500/10", text: "text-zinc-400", border: "border-zinc-500/20", dot: "bg-zinc-400" };
   const label = tag.replace(/_/g, " ");
 
   return (
@@ -87,7 +87,7 @@ function TagBadge({ tag }: { tag: string }) {
       <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
       <span>{label}</span>
       {style.tooltip && (
-        <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 hidden group-hover/tooltip:block z-10 px-2.5 py-1.5 text-[10px] font-normal normal-case tracking-normal text-[var(--text-primary)] bg-[var(--surface-3)] border border-[var(--border-medium)] rounded-md whitespace-nowrap pointer-events-none shadow-xl">
+        <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 hidden group-hover/tooltip:block z-10 px-2.5 py-1.5 text-[10px] font-normal normal-case tracking-normal text-[var(--text-primary)] bg-[var(--surface-3)] border border-[var(--border-medium)] rounded-md whitespace-nowrap pointer-events-none shadow-2xl shadow-black/40">
           {style.tooltip}
         </span>
       )}
@@ -97,7 +97,7 @@ function TagBadge({ tag }: { tag: string }) {
 
 function PnLCell({ value }: { value: number }) {
   if (value === 0) return <span className="text-[var(--text-tertiary)]">0</span>;
-  const color = value > 0 ? "text-emerald-600" : "text-red-600";
+  const color = value > 0 ? "text-emerald-400" : "text-red-400";
   const prefix = value > 0 ? "+" : "";
   return <span className={color}>{prefix}{formatNum(value)}</span>;
 }
@@ -106,7 +106,7 @@ function Tooltip({ children, content }: { children: React.ReactNode; content: st
   return (
     <span className="group/tooltip relative inline-flex items-center">
       {children}
-      <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 hidden group-hover/tooltip:block z-20 px-2.5 py-1.5 text-[10px] font-normal text-[var(--text-primary)] bg-[var(--surface-3)] border border-[var(--border-medium)] rounded-md whitespace-nowrap pointer-events-none shadow-xl">
+      <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 hidden group-hover/tooltip:block z-20 px-2.5 py-1.5 text-[10px] font-normal text-[var(--text-primary)] bg-[var(--surface-3)] border border-[var(--border-medium)] rounded-md whitespace-nowrap pointer-events-none shadow-2xl shadow-black/40">
         {content}
       </span>
     </span>
@@ -230,7 +230,7 @@ export default function EventTable({
                 <tr
                   className={`border-b border-[var(--border-subtle)] transition-colors duration-150 ${
                     hasErrors
-                      ? "bg-red-50/60 hover:bg-red-50"
+                      ? "bg-red-500/[0.08] hover:bg-red-500/[0.12]"
                       : "hover:bg-[var(--surface-2)]"
                   }`}
                 >
@@ -281,23 +281,23 @@ export default function EventTable({
                         {hasErrors && (
                           <div className="pt-2">
                             <div className="flex items-center gap-2 mb-2">
-                              <div className="w-4 h-4 rounded-full bg-red-100 flex items-center justify-center">
+                              <div className="w-4 h-4 rounded-full bg-red-500/20 flex items-center justify-center">
                                 <svg className="w-2.5 h-2.5 text-red-500" fill="currentColor" viewBox="0 0 20 20">
                                   <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
                                 </svg>
                               </div>
-                              <div className="text-red-600 font-semibold text-[9px] uppercase tracking-wider">Validation errors</div>
+                              <div className="text-red-400 font-semibold text-[9px] uppercase tracking-wider">Validation errors</div>
                             </div>
-                            <div className="space-y-1 text-red-600 pl-6">
+                            <div className="space-y-1 text-red-400 pl-6">
                               {rowErrors.map((err, idx) => (
                                 <div key={idx}>[{err.field}] {err.message}</div>
                               ))}
                             </div>
-                            <div className="text-red-500 mt-2 pl-6">Cannot export until resolved.</div>
+                            <div className="text-red-400 mt-2 pl-6">Cannot export until resolved.</div>
                           </div>
                         )}
                         {platformMode === "assisted" && !hasErrors && (
-                          <div className="pt-2 text-amber-600">
+                          <div className="pt-2 text-amber-400">
                             Assisted Mode — review for accuracy before export.
                           </div>
                         )}
@@ -339,8 +339,8 @@ export default function EventTable({
         </label>
         {platformMode === "assisted" && (
           <Tooltip content="Some events may require manual review.">
-            <div className="flex items-center gap-1.5 text-[10px] font-mono text-amber-600 uppercase tracking-wider">
-              <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+            <div className="flex items-center gap-1.5 text-[10px] font-mono text-amber-400 uppercase tracking-wider">
+              <div className="w-1.5 h-1.5 rounded-full bg-amber-400" />
               Assisted
             </div>
           </Tooltip>

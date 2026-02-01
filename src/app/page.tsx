@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { AwakensEvent, ValidationError } from "@/lib/core/types";
 import { generateCSV } from "@/lib/core/csv";
 import EventTable from "@/components/EventTable";
@@ -190,6 +190,25 @@ const PLATFORM_DOCS: Record<string, { supported: string[]; blocked: string[]; wh
   },
 };
 
+// Family labels for grouping in command palette
+const FAMILY_LABELS: Record<string, string> = {
+  "evm-perps": "EVM Perps",
+  "cosmwasm-perps": "CosmWasm Perps",
+  "substrate-staking": "Substrate Staking",
+  "cosmos-staking": "Cosmos Staking",
+  "tezos-staking": "Tezos",
+  "cardano-staking": "Cardano",
+  "near-staking": "NEAR",
+  "eth-validator": "Ethereum",
+  "algorand-staking": "Algorand",
+  "avalanche-staking": "Avalanche",
+  "solana-staking": "Solana",
+  "kadena-mining": "Kadena",
+  "aptos-staking": "Aptos",
+  "sui-staking": "Sui",
+  "glue-network": "Glue Network",
+};
+
 type Step = "select" | "input" | "loading" | "preview";
 
 export default function Home() {
@@ -204,20 +223,106 @@ export default function Home() {
   const [error, setError] = useState<string>("");
   const [eventCount, setEventCount] = useState(0);
   const [viewMode, setViewMode] = useState<"list" | "table">("list");
-  const gridRef = useRef<HTMLDivElement>(null);
 
-  // Track mouse position on platform cards for radial glow
-  const handleCardMouseMove = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    e.currentTarget.style.setProperty('--mouse-x', `${e.clientX - rect.left}px`);
-    e.currentTarget.style.setProperty('--mouse-y', `${e.clientY - rect.top}px`);
-  }, []);
+  // Command palette state
+  const [platformSearchOpen, setPlatformSearchOpen] = useState(false);
+  const [platformQuery, setPlatformQuery] = useState("");
+  const [activeIndex, setActiveIndex] = useState(0);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const selectedUsecase = USECASES.find((u) => u.id === usecase);
+  const filteredPlatforms = usecase
+    ? PLATFORMS.filter((p) => selectedUsecase?.families.includes(p.family))
+    : PLATFORMS;
+
+  // Command palette: filter by query
+  const filteredForSearch = useMemo(() => {
+    if (!platformQuery.trim()) return filteredPlatforms;
+    const q = platformQuery.toLowerCase();
+    return filteredPlatforms.filter(
+      (p) =>
+        p.name.toLowerCase().includes(q) ||
+        p.family.toLowerCase().includes(q) ||
+        (p.hint && p.hint.toLowerCase().includes(q))
+    );
+  }, [filteredPlatforms, platformQuery]);
+
+  // Group filtered results by family, separate not-ready
+  const groupedResults = useMemo(() => {
+    const ready = filteredForSearch.filter((p) => p.ready);
+    const notReady = filteredForSearch.filter((p) => !p.ready);
+
+    const familyGroups: Record<string, typeof PLATFORMS> = {};
+    ready.forEach((p) => {
+      if (!familyGroups[p.family]) familyGroups[p.family] = [];
+      familyGroups[p.family].push(p);
+    });
+
+    return { familyGroups, notReady };
+  }, [filteredForSearch]);
+
+  // Flat list for keyboard navigation
+  const flatResults = useMemo(() => {
+    const items: typeof PLATFORMS = [];
+    Object.values(groupedResults.familyGroups).forEach((group) => items.push(...group));
+    items.push(...groupedResults.notReady);
+    return items;
+  }, [groupedResults]);
+
+  // Focus search input when palette opens
+  useEffect(() => {
+    if (platformSearchOpen) {
+      setTimeout(() => searchInputRef.current?.focus(), 10);
+    } else {
+      setPlatformQuery("");
+      setActiveIndex(0);
+    }
+  }, [platformSearchOpen]);
+
+  // Reset active index when query changes
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [platformQuery]);
+
+  // Click outside to close
+  useEffect(() => {
+    if (!platformSearchOpen) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setPlatformSearchOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [platformSearchOpen]);
 
   function selectPlatform(id: string) {
     setPlatform(id);
+    setPlatformSearchOpen(false);
     setStep("input");
     setError("");
   }
+
+  // Keyboard navigation for command palette
+  const handlePaletteKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setActiveIndex((prev) => Math.min(prev + 1, flatResults.length - 1));
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setActiveIndex((prev) => Math.max(prev - 1, 0));
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        const item = flatResults[activeIndex];
+        if (item && item.ready) selectPlatform(item.id);
+      } else if (e.key === "Escape") {
+        setPlatformSearchOpen(false);
+      }
+    },
+    [flatResults, activeIndex]
+  );
 
   async function fetchEvents() {
     if (!account.trim()) return;
@@ -288,14 +393,9 @@ export default function Home() {
   const platformMode = PLATFORM_MODES[platform] || "strict";
   const platformDoc = PLATFORM_DOCS[platform];
 
-  const selectedUsecase = USECASES.find((u) => u.id === usecase);
-  const filteredPlatforms = usecase
-    ? PLATFORMS.filter((p) => selectedUsecase?.families.includes(p.family))
-    : PLATFORMS;
-
   function modeLabel(mode: string) {
-    if (mode === "assisted") return { label: "Assisted", color: "text-amber-700", bg: "bg-amber-50", border: "border-amber-200" };
-    if (mode === "partial") return { label: "Partial", color: "text-sky-700", bg: "bg-sky-50", border: "border-sky-200" };
+    if (mode === "assisted") return { label: "Assisted", color: "text-amber-400", bg: "bg-amber-500/10", border: "border-amber-500/20" };
+    if (mode === "partial") return { label: "Partial", color: "text-sky-400", bg: "bg-sky-500/10", border: "border-sky-500/20" };
     return { label: "Strict", color: "text-[var(--accent)]", bg: "bg-[var(--accent-dim)]", border: "border-[var(--accent-border)]" };
   }
 
@@ -313,23 +413,25 @@ export default function Home() {
   return (
     <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-16">
       {/* Header */}
-      <div className="mb-10 sm:mb-14 animate-fade-in">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-8 h-8 rounded-md bg-[var(--accent-dim)] border border-[var(--accent-border)] flex items-center justify-center">
-            <svg className="w-4 h-4 text-[var(--accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
-            </svg>
+      <div className="mb-10 sm:mb-14 animate-fade-in ambient-glow">
+        <div className="relative z-10">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-8 h-8 rounded-md bg-[var(--accent-dim)] border border-[var(--accent-border)] flex items-center justify-center">
+              <svg className="w-4 h-4 text-[var(--accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+              </svg>
+            </div>
+            <span className="text-[10px] font-mono font-medium tracking-widest uppercase text-[var(--text-tertiary)]">Awakens Exporter</span>
           </div>
-          <span className="text-[10px] font-mono font-medium tracking-widest uppercase text-[var(--text-tertiary)]">Awakens Exporter</span>
+          <h1 className="text-3xl sm:text-[2.5rem] font-bold tracking-[-0.03em] text-[var(--text-primary)] mb-1 leading-[1.15]">
+            Accounting Event<br className="hidden sm:block" /> Exporter
+          </h1>
+          <div className="w-12 h-[2px] bg-gradient-to-r from-[var(--accent)] to-transparent rounded-full mb-4" />
+          <p className="text-[15px] text-[var(--text-secondary)] leading-relaxed max-w-xl">
+            Export protocol-defined accounting events into Awakens-compatible CSV.
+            Only events explicitly emitted by the protocol are included.
+          </p>
         </div>
-        <h1 className="text-3xl sm:text-[2.5rem] font-bold tracking-[-0.03em] text-[var(--text-primary)] mb-1 leading-[1.15]">
-          Accounting Event<br className="hidden sm:block" /> Exporter
-        </h1>
-        <div className="w-12 h-[2px] bg-gradient-to-r from-[var(--accent)] to-transparent rounded-full mb-4" />
-        <p className="text-[15px] text-[var(--text-secondary)] leading-relaxed max-w-xl">
-          Export protocol-defined accounting events into Awakens-compatible CSV.
-          Only events explicitly emitted by the protocol are included.
-        </p>
       </div>
 
       {/* Step indicator */}
@@ -364,9 +466,9 @@ export default function Home() {
 
       {/* Error display */}
       {error && (
-        <div className="mb-8 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm font-mono whitespace-pre-wrap animate-fade-in">
+        <div className="mb-8 p-4 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm font-mono whitespace-pre-wrap animate-fade-in">
           <div className="flex items-start gap-3">
-            <div className="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+            <div className="w-5 h-5 rounded-full bg-red-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
               <svg className="w-3 h-3 text-red-500" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
               </svg>
@@ -376,7 +478,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* ═══════════ Step 1: Usecase + Platform selection ═══════════ */}
+      {/* Step 1: Usecase + Platform selection */}
       {step === "select" && (
         <div className="animate-fade-in-up">
           {/* Usecase selector */}
@@ -424,7 +526,7 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Platform grid */}
+          {/* Command Palette Platform Selector */}
           <div className="mb-5">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
@@ -449,42 +551,96 @@ export default function Home() {
               {!usecase && "Choose the platform where your activity occurred."}
             </p>
           </div>
-          <div ref={gridRef} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 stagger">
-            {filteredPlatforms.map((p) => {
-              const mode = modeLabel(PLATFORM_MODES[p.id] || "strict");
-              return (
-                <button
-                  key={p.id}
-                  onClick={() => p.ready && selectPlatform(p.id)}
-                  onMouseMove={handleCardMouseMove}
-                  disabled={!p.ready}
-                  className={`platform-card animate-fade-in p-4 rounded-lg border text-left ${
-                    p.ready
-                      ? "border-[var(--border-subtle)] hover:border-[var(--border-strong)] cursor-pointer"
-                      : "border-[var(--border-subtle)] opacity-30 cursor-not-allowed"
-                  }`}
-                >
-                  <div className="relative z-10">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="font-semibold text-[var(--text-primary)] text-[13px] tracking-[-0.01em]">{p.name}</div>
-                      {p.ready && (
-                        <span className={`text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded ${mode.bg} ${mode.color} border ${mode.border} uppercase tracking-wider`}>
-                          {mode.label}
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {p.requiresAuth && (
-                        <span className="text-[9px] font-mono font-medium text-amber-600 uppercase tracking-wider">API Key</span>
-                      )}
-                      <div className="text-[11px] text-[var(--text-tertiary)] leading-relaxed truncate">
-                        {p.ready ? (p.hint || "Ready") : p.hint || "Coming soon"}
+
+          {/* Command palette trigger */}
+          <div className="relative mb-8" ref={dropdownRef}>
+            <button
+              onClick={() => setPlatformSearchOpen(!platformSearchOpen)}
+              className="w-full flex items-center gap-3 px-4 py-3.5 bg-[var(--surface-2)] border border-[var(--border-medium)] rounded-lg text-left transition-all duration-200 hover:border-[var(--border-strong)] hover:bg-[var(--surface-3)]"
+            >
+              <svg className="w-4 h-4 text-[var(--text-tertiary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+              </svg>
+              <span className="flex-1 text-sm text-[var(--text-tertiary)]">Search platforms...</span>
+              <svg className={`w-4 h-4 text-[var(--text-tertiary)] transition-transform duration-200 ${platformSearchOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+              </svg>
+            </button>
+
+            {/* Floating dropdown */}
+            {platformSearchOpen && (
+              <div className="absolute top-full left-0 right-0 mt-2 z-50 command-palette animate-drop-in" onKeyDown={handlePaletteKeyDown}>
+                {/* Sticky search input */}
+                <div className="sticky top-0 z-10 p-3 border-b border-[var(--glass-border)] bg-[var(--glass-bg)] backdrop-blur-xl rounded-t-[var(--radius-md)]">
+                  <input
+                    ref={searchInputRef}
+                    type="text"
+                    value={platformQuery}
+                    onChange={(e) => setPlatformQuery(e.target.value)}
+                    onKeyDown={handlePaletteKeyDown}
+                    placeholder="Type to search..."
+                    spellCheck={false}
+                    className="w-full px-3 py-2 bg-[var(--surface-2)] border border-[var(--border-subtle)] rounded-md font-mono text-sm text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] focus:border-[var(--accent-border)] placeholder:text-[var(--text-tertiary)] transition-all duration-200"
+                  />
+                </div>
+
+                {/* Scrollable results */}
+                <div className="overflow-y-auto max-h-[340px]">
+                  {Object.entries(groupedResults.familyGroups).map(([family, platforms]) => (
+                    <div key={family}>
+                      <div className="sticky top-0 z-[5] px-4 py-2 text-[9px] font-mono font-semibold uppercase tracking-widest text-[var(--text-tertiary)] bg-[var(--surface-1)]/80 backdrop-blur-sm border-b border-[var(--border-subtle)]">
+                        {FAMILY_LABELS[family] || family}
                       </div>
+                      {platforms.map((p) => {
+                        const idx = flatResults.indexOf(p);
+                        const mode = modeLabel(PLATFORM_MODES[p.id] || "strict");
+                        return (
+                          <button
+                            key={p.id}
+                            data-active={idx === activeIndex}
+                            onClick={() => selectPlatform(p.id)}
+                            onMouseEnter={() => setActiveIndex(idx)}
+                            className="command-palette-item w-full flex items-center gap-3 px-4 py-2.5 text-left transition-all duration-100"
+                          >
+                            <div className="flex-1 min-w-0">
+                              <div className="text-[13px] font-medium text-[var(--text-primary)]">{p.name}</div>
+                              <div className="text-[10px] text-[var(--text-tertiary)] truncate">{p.hint}</div>
+                            </div>
+                            <span className={`text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded ${mode.bg} ${mode.color} border ${mode.border} uppercase tracking-wider flex-shrink-0`}>
+                              {mode.label}
+                            </span>
+                          </button>
+                        );
+                      })}
                     </div>
-                  </div>
-                </button>
-              );
-            })}
+                  ))}
+
+                  {/* Coming Soon group */}
+                  {groupedResults.notReady.length > 0 && (
+                    <div>
+                      <div className="sticky top-0 z-[5] px-4 py-2 text-[9px] font-mono font-semibold uppercase tracking-widest text-[var(--text-tertiary)] bg-[var(--surface-1)]/80 backdrop-blur-sm border-b border-[var(--border-subtle)]">
+                        Coming Soon
+                      </div>
+                      {groupedResults.notReady.map((p) => (
+                        <div
+                          key={p.id}
+                          className="command-palette-item w-full flex items-center gap-3 px-4 py-2.5 opacity-40 cursor-not-allowed"
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="text-[13px] font-medium text-[var(--text-primary)]">{p.name}</div>
+                            <div className="text-[10px] text-[var(--text-tertiary)] truncate">{p.hint}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {flatResults.length === 0 && (
+                    <div className="px-4 py-8 text-center text-sm text-[var(--text-tertiary)]">No platforms match your search.</div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Chain Eligibility Framework */}
@@ -547,7 +703,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* ═══════════ Step 2: Account input ═══════════ */}
+      {/* Step 2: Account input */}
       {step === "input" && (
         <div className="max-w-lg space-y-6 animate-fade-in-up">
           <div>
@@ -558,24 +714,24 @@ export default function Home() {
 
             {/* Mode context banner */}
             {platformMode === "assisted" && (
-              <div className="mb-5 p-4 rounded-lg bg-amber-50 border border-amber-200">
+              <div className="mb-5 p-4 rounded-lg bg-amber-500/10 border border-amber-500/20">
                 <div className="flex items-start gap-3">
-                  <div className="w-5 h-5 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <span className="text-amber-600 text-[10px] font-bold">!</span>
+                  <div className="w-5 h-5 rounded-full bg-amber-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <span className="text-amber-400 text-[10px] font-bold">!</span>
                   </div>
-                  <div className="text-[12px] text-amber-800 leading-relaxed">
+                  <div className="text-[12px] text-amber-300 leading-relaxed">
                     <span className="font-semibold">Assisted Mode</span> — This platform may produce events that require manual review. We highlight these so you can verify them before export.
                   </div>
                 </div>
               </div>
             )}
             {platformMode === "partial" && (
-              <div className="mb-5 p-4 rounded-lg bg-sky-50 border border-sky-200">
+              <div className="mb-5 p-4 rounded-lg bg-sky-500/10 border border-sky-500/20">
                 <div className="flex items-start gap-3">
-                  <div className="w-5 h-5 rounded-full bg-sky-100 flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <span className="text-sky-600 text-[10px] font-bold">i</span>
+                  <div className="w-5 h-5 rounded-full bg-sky-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <span className="text-sky-400 text-[10px] font-bold">i</span>
                   </div>
-                  <div className="text-[12px] text-sky-800 leading-relaxed">
+                  <div className="text-[12px] text-sky-300 leading-relaxed">
                     <span className="font-semibold">Partial Support</span> — Only a subset of accounting events can be safely exported for this chain. Events that require inference are intentionally blocked.
                   </div>
                 </div>
@@ -615,7 +771,7 @@ export default function Home() {
                 <button
                   onClick={fetchEvents}
                   disabled={!account.trim()}
-                  className="btn-primary relative px-6 py-3 bg-[var(--accent)] text-[var(--surface-0)] rounded-lg font-semibold text-sm hover:brightness-110 disabled:opacity-20 disabled:cursor-not-allowed transition-all duration-200"
+                  className="btn-primary relative px-6 py-3 bg-[var(--accent)] text-white rounded-lg font-semibold text-sm hover:brightness-110 disabled:opacity-20 disabled:cursor-not-allowed transition-all duration-200"
                 >
                   <span className="relative z-10">Fetch</span>
                 </button>
@@ -626,8 +782,8 @@ export default function Home() {
           {/* API key fields */}
           {needsAuth && (
             <div className="space-y-4">
-              <div className="p-4 rounded-lg bg-amber-50 border border-amber-200 text-[12px] text-amber-800 leading-relaxed">
-                <div className="font-semibold mb-1 text-amber-900">Credentials are never stored</div>
+              <div className="p-4 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[12px] text-amber-300 leading-relaxed">
+                <div className="font-semibold mb-1 text-amber-200">Credentials are never stored</div>
                 Sent directly to {platformName}&apos;s API from our server. We recommend a read-only key.
               </div>
               <div>
@@ -656,7 +812,7 @@ export default function Home() {
               <button
                 onClick={fetchEvents}
                 disabled={!account.trim() || !apiKey.trim()}
-                className="btn-primary relative w-full px-6 py-3 bg-[var(--accent)] text-[var(--surface-0)] rounded-lg font-semibold text-sm hover:brightness-110 disabled:opacity-20 disabled:cursor-not-allowed transition-all duration-200"
+                className="btn-primary relative w-full px-6 py-3 bg-[var(--accent)] text-white rounded-lg font-semibold text-sm hover:brightness-110 disabled:opacity-20 disabled:cursor-not-allowed transition-all duration-200"
               >
                 <span className="relative z-10">Fetch accounting events</span>
               </button>
@@ -672,7 +828,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* ═══════════ Step 3: Loading ═══════════ */}
+      {/* Step 3: Loading */}
       {step === "loading" && (
         <div className="animate-fade-in py-20 flex flex-col items-center justify-center gap-6">
           <div className="relative w-14 h-14">
@@ -696,7 +852,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* ═══════════ Step 4: Preview + Export ═══════════ */}
+      {/* Step 4: Preview + Export */}
       {step === "preview" && (
         <div className="space-y-6 animate-fade-in-up">
           {/* Stats bar */}
@@ -709,7 +865,7 @@ export default function Home() {
               <div className="w-px h-4 bg-[var(--border-subtle)]" />
               <span className="text-[var(--text-secondary)] font-medium text-[13px]">{platformName}</span>
               {validationErrors.length > 0 && (
-                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-red-50 border border-red-200 text-red-600 text-[11px] font-mono font-medium">
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-red-500/10 border border-red-500/20 text-red-400 text-[11px] font-mono font-medium">
                   {validationErrors.length} error{validationErrors.length > 1 ? "s" : ""}
                 </span>
               )}
@@ -752,7 +908,7 @@ export default function Home() {
               <button
                 onClick={downloadCSV}
                 disabled={validationErrors.length > 0}
-                className="group btn-primary relative px-5 py-2 text-[12px] font-semibold bg-[var(--accent)] text-[var(--surface-0)] rounded-md hover:brightness-110 disabled:opacity-20 disabled:cursor-not-allowed transition-all duration-200"
+                className="group btn-primary relative px-5 py-2 text-[12px] font-semibold bg-[var(--accent)] text-white rounded-md hover:brightness-110 disabled:opacity-20 disabled:cursor-not-allowed transition-all duration-200"
               >
                 <span className="relative z-10 block leading-tight">Export Verified CSV</span>
                 <span className="relative z-10 block text-[9px] font-normal opacity-60 group-hover:opacity-80 leading-tight tracking-normal">{eventCount} validated event{eventCount !== 1 ? "s" : ""} · deterministic</span>
@@ -781,19 +937,19 @@ export default function Home() {
 
           {/* Validation errors */}
           {validationErrors.length > 0 && (
-            <div className="p-5 bg-red-50 border border-red-200 rounded-lg">
+            <div className="p-5 bg-red-500/10 border border-red-500/20 rounded-lg">
               <div className="flex items-center gap-2.5 mb-3">
-                <div className="w-6 h-6 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                <div className="w-6 h-6 rounded-full bg-red-500/20 flex items-center justify-center flex-shrink-0">
                   <svg className="w-3.5 h-3.5 text-red-500" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
                   </svg>
                 </div>
                 <div>
-                  <div className="text-red-700 text-sm font-semibold">Export blocked</div>
-                  <div className="text-[11px] text-red-600 mt-0.5">Validation errors must be resolved to protect accounting accuracy.</div>
+                  <div className="text-red-400 text-sm font-semibold">Export blocked</div>
+                  <div className="text-[11px] text-red-400 mt-0.5">Validation errors must be resolved to protect accounting accuracy.</div>
                 </div>
               </div>
-              <div className="space-y-1 text-[11px] font-mono text-red-600 max-h-40 overflow-y-auto">
+              <div className="space-y-1 text-[11px] font-mono text-red-400 max-h-40 overflow-y-auto">
                 {validationErrors.slice(0, 20).map((e, i) => (
                   <div key={i}>Row {e.row}: [{e.field}] {e.message}</div>
                 ))}
@@ -812,20 +968,20 @@ export default function Home() {
                 <div className="space-y-1.5 stagger">
                   {events.map((event, i) => {
                     const tagColors: Record<string, string> = {
-                      open_position: "text-blue-600",
-                      close_position: "text-teal-600",
-                      funding_payment: "text-amber-600",
-                      staking_reward: "text-violet-600",
-                      slashing: "text-rose-600",
+                      open_position: "text-blue-400",
+                      close_position: "text-teal-400",
+                      funding_payment: "text-amber-400",
+                      staking_reward: "text-violet-400",
+                      slashing: "text-rose-400",
                     };
                     const tagDots: Record<string, string> = {
-                      open_position: "bg-blue-500",
-                      close_position: "bg-teal-500",
-                      funding_payment: "bg-amber-500",
-                      staking_reward: "bg-violet-500",
-                      slashing: "bg-rose-500",
+                      open_position: "bg-blue-400",
+                      close_position: "bg-teal-400",
+                      funding_payment: "bg-amber-400",
+                      staking_reward: "bg-violet-400",
+                      slashing: "bg-rose-400",
                     };
-                    const pnlColor = event.pnl > 0 ? "text-emerald-600" : event.pnl < 0 ? "text-red-600" : "text-[var(--text-tertiary)]";
+                    const pnlColor = event.pnl > 0 ? "text-emerald-400" : event.pnl < 0 ? "text-red-400" : "text-[var(--text-tertiary)]";
                     const hasErrors = validationErrors.some((e) => e.row === i);
 
                     return (
@@ -833,7 +989,7 @@ export default function Home() {
                         key={`${event.txHash}-${i}`}
                         className={`event-item animate-fade-in group rounded-lg border transition-all duration-200 ${
                           hasErrors
-                            ? "border-red-200 bg-red-50/60"
+                            ? "border-red-500/20 bg-red-500/[0.08]"
                             : "border-[var(--border-subtle)] hover:border-[var(--border-medium)] bg-[var(--surface-1)]"
                         }`}
                       >
@@ -892,17 +1048,17 @@ export default function Home() {
                               </div>
                             )}
                             {hasErrors && (
-                              <div className="col-span-2 mt-1 text-red-600">
+                              <div className="col-span-2 mt-1 text-red-400">
                                 {validationErrors.filter((e) => e.row === i).map((err, idx) => (
                                   <div key={idx}>[{err.field}] {err.message}</div>
                                 ))}
                               </div>
                             )}
                             {platformMode === "assisted" && !hasErrors && (
-                              <div className="col-span-2 mt-1 text-amber-600">Review this event for accuracy before export.</div>
+                              <div className="col-span-2 mt-1 text-amber-400">Review this event for accuracy before export.</div>
                             )}
                             {platformMode === "partial" && !hasErrors && (
-                              <div className="col-span-2 mt-1 text-sky-600">Partial — only protocol-defined events included.</div>
+                              <div className="col-span-2 mt-1 text-sky-400">Partial — only protocol-defined events included.</div>
                             )}
                           </div>
                         </div>
