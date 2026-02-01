@@ -294,8 +294,8 @@ export default function Home() {
     : PLATFORMS;
 
   function modeLabel(mode: string) {
-    if (mode === "assisted") return { label: "Assisted", color: "text-amber-400", bg: "bg-amber-500/10", border: "border-amber-500/20" };
-    if (mode === "partial") return { label: "Partial", color: "text-sky-400", bg: "bg-sky-500/10", border: "border-sky-500/20" };
+    if (mode === "assisted") return { label: "Assisted", color: "text-amber-700", bg: "bg-amber-50", border: "border-amber-200" };
+    if (mode === "partial") return { label: "Partial", color: "text-sky-700", bg: "bg-sky-50", border: "border-sky-200" };
     return { label: "Strict", color: "text-[var(--accent)]", bg: "bg-[var(--accent-dim)]", border: "border-[var(--accent-border)]" };
   }
 
@@ -322,9 +322,10 @@ export default function Home() {
           </div>
           <span className="text-[10px] font-mono font-medium tracking-widest uppercase text-[var(--text-tertiary)]">Awakens Exporter</span>
         </div>
-        <h1 className="text-3xl sm:text-[2.5rem] font-bold tracking-[-0.03em] text-[var(--text-primary)] mb-3 leading-[1.15]">
+        <h1 className="text-3xl sm:text-[2.5rem] font-bold tracking-[-0.03em] text-[var(--text-primary)] mb-1 leading-[1.15]">
           Accounting Event<br className="hidden sm:block" /> Exporter
         </h1>
+        <div className="w-12 h-[2px] bg-gradient-to-r from-[var(--accent)] to-transparent rounded-full mb-4" />
         <p className="text-[15px] text-[var(--text-secondary)] leading-relaxed max-w-xl">
           Export protocol-defined accounting events into Awakens-compatible CSV.
           Only events explicitly emitted by the protocol are included.
@@ -363,10 +364,10 @@ export default function Home() {
 
       {/* Error display */}
       {error && (
-        <div className="mb-8 p-4 bg-red-500/5 border border-red-500/15 rounded-lg text-red-300 text-sm font-mono whitespace-pre-wrap animate-fade-in">
+        <div className="mb-8 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm font-mono whitespace-pre-wrap animate-fade-in">
           <div className="flex items-start gap-3">
-            <div className="w-5 h-5 rounded-full bg-red-500/10 flex items-center justify-center flex-shrink-0 mt-0.5">
-              <svg className="w-3 h-3 text-red-400" fill="currentColor" viewBox="0 0 20 20">
+            <div className="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+              <svg className="w-3 h-3 text-red-500" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
               </svg>
             </div>
@@ -474,7 +475,7 @@ export default function Home() {
                     </div>
                     <div className="flex items-center gap-2">
                       {p.requiresAuth && (
-                        <span className="text-[9px] font-mono font-medium text-amber-400/70 uppercase tracking-wider">API Key</span>
+                        <span className="text-[9px] font-mono font-medium text-amber-600 uppercase tracking-wider">API Key</span>
                       )}
                       <div className="text-[11px] text-[var(--text-tertiary)] leading-relaxed truncate">
                         {p.ready ? (p.hint || "Ready") : p.hint || "Coming soon"}
@@ -557,24 +558,24 @@ export default function Home() {
 
             {/* Mode context banner */}
             {platformMode === "assisted" && (
-              <div className="mb-5 p-4 rounded-lg bg-amber-500/5 border border-amber-500/15">
+              <div className="mb-5 p-4 rounded-lg bg-amber-50 border border-amber-200">
                 <div className="flex items-start gap-3">
-                  <div className="w-5 h-5 rounded-full bg-amber-500/10 flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <span className="text-amber-400 text-[10px] font-bold">!</span>
+                  <div className="w-5 h-5 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <span className="text-amber-600 text-[10px] font-bold">!</span>
                   </div>
-                  <div className="text-[12px] text-amber-300/90 leading-relaxed">
+                  <div className="text-[12px] text-amber-800 leading-relaxed">
                     <span className="font-semibold">Assisted Mode</span> — This platform may produce events that require manual review. We highlight these so you can verify them before export.
                   </div>
                 </div>
               </div>
             )}
             {platformMode === "partial" && (
-              <div className="mb-5 p-4 rounded-lg bg-sky-500/5 border border-sky-500/15">
+              <div className="mb-5 p-4 rounded-lg bg-sky-50 border border-sky-200">
                 <div className="flex items-start gap-3">
-                  <div className="w-5 h-5 rounded-full bg-sky-500/10 flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <span className="text-sky-400 text-[10px] font-bold">i</span>
+                  <div className="w-5 h-5 rounded-full bg-sky-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <span className="text-sky-600 text-[10px] font-bold">i</span>
                   </div>
-                  <div className="text-[12px] text-sky-300/90 leading-relaxed">
+                  <div className="text-[12px] text-sky-800 leading-relaxed">
                     <span className="font-semibold">Partial Support</span> — Only a subset of accounting events can be safely exported for this chain. Events that require inference are intentionally blocked.
                   </div>
                 </div>
@@ -590,7 +591,7 @@ export default function Home() {
                     <span className="text-[var(--text-secondary)]">{platformDoc.supported.join(" / ")}</span>
                   </div>
                   <div>
-                    <span className="font-mono text-[10px] uppercase tracking-wider text-red-400/70 mr-2">Blocked</span>
+                    <span className="font-mono text-[10px] uppercase tracking-wider text-red-500 mr-2">Blocked</span>
                     <span className="text-[var(--text-tertiary)]">{platformDoc.blocked.join(" / ")}</span>
                   </div>
                   <div className="pt-1 border-t border-[var(--border-subtle)]">
@@ -625,8 +626,8 @@ export default function Home() {
           {/* API key fields */}
           {needsAuth && (
             <div className="space-y-4">
-              <div className="p-4 rounded-lg bg-amber-500/5 border border-amber-500/10 text-[12px] text-amber-300/80 leading-relaxed">
-                <div className="font-semibold mb-1 text-amber-300/90">Credentials are never stored</div>
+              <div className="p-4 rounded-lg bg-amber-50 border border-amber-200 text-[12px] text-amber-800 leading-relaxed">
+                <div className="font-semibold mb-1 text-amber-900">Credentials are never stored</div>
                 Sent directly to {platformName}&apos;s API from our server. We recommend a read-only key.
               </div>
               <div>
@@ -673,14 +674,24 @@ export default function Home() {
 
       {/* ═══════════ Step 3: Loading ═══════════ */}
       {step === "loading" && (
-        <div className="animate-fade-in py-16 flex flex-col items-center justify-center gap-5">
-          <div className="relative w-10 h-10">
-            <div className="absolute inset-0 rounded-full border-2 border-[var(--border-subtle)]" />
-            <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-[var(--accent)]" style={{ animation: "spin 0.8s linear infinite" }} />
+        <div className="animate-fade-in py-20 flex flex-col items-center justify-center gap-6">
+          <div className="relative w-14 h-14">
+            <div className="absolute inset-0 rounded-full border border-[var(--border-subtle)]" />
+            <div className="absolute inset-1 rounded-full border border-[var(--border-subtle)] opacity-60" />
+            <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-[var(--accent)]" style={{ animation: "spin 0.9s cubic-bezier(0.4, 0, 0.2, 1) infinite" }} />
+            <div className="absolute inset-[6px] rounded-full border-2 border-transparent border-b-[var(--accent)]" style={{ animation: "spin 1.4s cubic-bezier(0.4, 0, 0.2, 1) infinite reverse" }} />
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="w-2 h-2 rounded-full bg-[var(--accent)]" style={{ animation: "breathe 2s ease-in-out infinite" }} />
+            </div>
           </div>
           <div className="text-center">
-            <div className="text-sm font-medium text-[var(--text-primary)] mb-1">Fetching accounting events</div>
+            <div className="text-sm font-medium text-[var(--text-primary)] mb-1.5">Fetching accounting events</div>
             <div className="text-[12px] font-mono text-[var(--text-tertiary)]">{platformName}</div>
+            <div className="mt-4 flex items-center justify-center gap-1.5">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="w-1 h-1 rounded-full bg-[var(--accent)]" style={{ animation: "breathe 1.2s ease-in-out infinite", animationDelay: `${i * 200}ms` }} />
+              ))}
+            </div>
           </div>
         </div>
       )}
@@ -698,7 +709,7 @@ export default function Home() {
               <div className="w-px h-4 bg-[var(--border-subtle)]" />
               <span className="text-[var(--text-secondary)] font-medium text-[13px]">{platformName}</span>
               {validationErrors.length > 0 && (
-                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-red-500/10 border border-red-500/20 text-red-400 text-[11px] font-mono font-medium">
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-red-50 border border-red-200 text-red-600 text-[11px] font-mono font-medium">
                   {validationErrors.length} error{validationErrors.length > 1 ? "s" : ""}
                 </span>
               )}
@@ -770,19 +781,19 @@ export default function Home() {
 
           {/* Validation errors */}
           {validationErrors.length > 0 && (
-            <div className="p-5 bg-red-500/5 border border-red-500/15 rounded-lg">
+            <div className="p-5 bg-red-50 border border-red-200 rounded-lg">
               <div className="flex items-center gap-2.5 mb-3">
-                <div className="w-6 h-6 rounded-full bg-red-500/10 flex items-center justify-center flex-shrink-0">
-                  <svg className="w-3.5 h-3.5 text-red-400" fill="currentColor" viewBox="0 0 20 20">
+                <div className="w-6 h-6 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                  <svg className="w-3.5 h-3.5 text-red-500" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
                   </svg>
                 </div>
                 <div>
-                  <div className="text-red-300 text-sm font-semibold">Export blocked</div>
-                  <div className="text-[11px] text-red-400/70 mt-0.5">Validation errors must be resolved to protect accounting accuracy.</div>
+                  <div className="text-red-700 text-sm font-semibold">Export blocked</div>
+                  <div className="text-[11px] text-red-600 mt-0.5">Validation errors must be resolved to protect accounting accuracy.</div>
                 </div>
               </div>
-              <div className="space-y-1 text-[11px] font-mono text-red-400/80 max-h-40 overflow-y-auto">
+              <div className="space-y-1 text-[11px] font-mono text-red-600 max-h-40 overflow-y-auto">
                 {validationErrors.slice(0, 20).map((e, i) => (
                   <div key={i}>Row {e.row}: [{e.field}] {e.message}</div>
                 ))}
@@ -801,20 +812,20 @@ export default function Home() {
                 <div className="space-y-1.5 stagger">
                   {events.map((event, i) => {
                     const tagColors: Record<string, string> = {
-                      open_position: "text-blue-400",
-                      close_position: "text-teal-400",
-                      funding_payment: "text-amber-400",
-                      staking_reward: "text-violet-400",
-                      slashing: "text-rose-400",
+                      open_position: "text-blue-600",
+                      close_position: "text-teal-600",
+                      funding_payment: "text-amber-600",
+                      staking_reward: "text-violet-600",
+                      slashing: "text-rose-600",
                     };
                     const tagDots: Record<string, string> = {
-                      open_position: "bg-blue-400",
-                      close_position: "bg-teal-400",
-                      funding_payment: "bg-amber-400",
-                      staking_reward: "bg-violet-400",
-                      slashing: "bg-rose-400",
+                      open_position: "bg-blue-500",
+                      close_position: "bg-teal-500",
+                      funding_payment: "bg-amber-500",
+                      staking_reward: "bg-violet-500",
+                      slashing: "bg-rose-500",
                     };
-                    const pnlColor = event.pnl > 0 ? "text-emerald-400" : event.pnl < 0 ? "text-red-400" : "text-[var(--text-tertiary)]";
+                    const pnlColor = event.pnl > 0 ? "text-emerald-600" : event.pnl < 0 ? "text-red-600" : "text-[var(--text-tertiary)]";
                     const hasErrors = validationErrors.some((e) => e.row === i);
 
                     return (
@@ -822,7 +833,7 @@ export default function Home() {
                         key={`${event.txHash}-${i}`}
                         className={`event-item animate-fade-in group rounded-lg border transition-all duration-200 ${
                           hasErrors
-                            ? "border-red-500/20 bg-red-500/5"
+                            ? "border-red-200 bg-red-50/60"
                             : "border-[var(--border-subtle)] hover:border-[var(--border-medium)] bg-[var(--surface-1)]"
                         }`}
                       >
@@ -881,17 +892,17 @@ export default function Home() {
                               </div>
                             )}
                             {hasErrors && (
-                              <div className="col-span-2 mt-1 text-red-400/80">
+                              <div className="col-span-2 mt-1 text-red-600">
                                 {validationErrors.filter((e) => e.row === i).map((err, idx) => (
                                   <div key={idx}>[{err.field}] {err.message}</div>
                                 ))}
                               </div>
                             )}
                             {platformMode === "assisted" && !hasErrors && (
-                              <div className="col-span-2 mt-1 text-amber-400/60">Review this event for accuracy before export.</div>
+                              <div className="col-span-2 mt-1 text-amber-600">Review this event for accuracy before export.</div>
                             )}
                             {platformMode === "partial" && !hasErrors && (
-                              <div className="col-span-2 mt-1 text-sky-400/60">Partial — only protocol-defined events included.</div>
+                              <div className="col-span-2 mt-1 text-sky-600">Partial — only protocol-defined events included.</div>
                             )}
                           </div>
                         </div>
@@ -923,6 +934,13 @@ export default function Home() {
           )}
         </div>
       )}
+      {/* Footer */}
+      <footer className="mt-20 pt-6 pb-2 border-t border-[var(--border-subtle)]">
+        <div className="flex items-center justify-between text-[10px] font-mono text-[var(--text-tertiary)] tracking-wide">
+          <span>Awakens Exporter &middot; Correctness-first accounting</span>
+          <span className="uppercase">Protocol events only</span>
+        </div>
+      </footer>
     </main>
   );
 }
