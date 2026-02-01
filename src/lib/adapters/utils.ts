@@ -31,21 +31,51 @@ export function formatISODateUTC(isoString: string): string {
 /**
  * Truncate a number to at most 8 decimal places.
  * Uses truncation (not rounding) to avoid introducing accounting errors.
+ * Throws on NaN or Infinity to prevent corrupt data from propagating.
  */
 export function truncateDecimals(n: number): number {
+  if (!Number.isFinite(n)) {
+    throw new Error(`truncateDecimals: input must be a finite number, got ${n}`);
+  }
   return Math.trunc(n * 1e8) / 1e8;
 }
 
 /**
  * Parse a numeric string and truncate to 8 decimal places.
- * Throws on NaN.
+ * Throws on NaN or non-finite values.
  */
 export function parseAndTruncate(value: string, fieldName: string): number {
   const n = parseFloat(value);
-  if (isNaN(n)) {
-    throw new Error(`${fieldName}: could not parse "${value}" as a number`);
+  if (!Number.isFinite(n)) {
+    throw new Error(`${fieldName}: could not parse "${value}" as a finite number`);
   }
   return truncateDecimals(n);
+}
+
+/**
+ * Wrap a fetch call with network error classification.
+ * Distinguishes network connectivity failures from API-level errors.
+ */
+export async function fetchWithContext(
+  url: string,
+  init: RequestInit | undefined,
+  platformName: string,
+): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes("fetch failed") || message.includes("ECONNREFUSED") ||
+        message.includes("ENOTFOUND") || message.includes("ETIMEDOUT") ||
+        message.includes("network") || message.includes("abort")) {
+      throw new Error(
+        `${platformName}: Network error — could not reach API. ` +
+        `Check your internet connection or try again later. ` +
+        `(${message})`
+      );
+    }
+    throw new Error(`${platformName}: Request failed — ${message}`);
+  }
 }
 
 /**

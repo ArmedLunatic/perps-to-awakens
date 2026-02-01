@@ -51,7 +51,7 @@ function formatDate(timestamp: number): string {
 
 function nanoAvaxToAvax(nanoAvax: string): number {
   const value = Number(nanoAvax) / 1_000_000_000;
-  return parseFloat(value.toFixed(8));
+  return Math.trunc(value * 1e8) / 1e8; // Truncate to 8 decimal places (not round) for accounting correctness
 }
 
 export const avalancheStakingAdapter: PerpsAdapter = {

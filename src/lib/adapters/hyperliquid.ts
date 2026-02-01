@@ -1,4 +1,5 @@
 import { AwakensEvent, PerpsAdapter } from "../core/types";
+import { fetchWithContext } from "./utils";
 
 const API_BASE = "https://api.hyperliquid.xyz/info";
 
@@ -75,7 +76,7 @@ async function fetchAllFills(account: string): Promise<HyperliquidFill[]> {
   const MAX_PAGES = 50; // Safety limit: 50 * 2000 = 100k fills max
 
   for (let page = 0; page < MAX_PAGES; page++) {
-    const response = await fetch(API_BASE, {
+    const response = await fetchWithContext(API_BASE, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -85,7 +86,7 @@ async function fetchAllFills(account: string): Promise<HyperliquidFill[]> {
         endTime,
         aggregateByTime: false,
       }),
-    });
+    }, "Hyperliquid");
 
     if (!response.ok) {
       throw new Error(`Hyperliquid API error (fills): ${response.status} ${response.statusText}`);
@@ -117,7 +118,7 @@ async function fetchAllFunding(account: string): Promise<HyperliquidFundingEntry
   const MAX_PAGES = 50;
 
   for (let page = 0; page < MAX_PAGES; page++) {
-    const response = await fetch(API_BASE, {
+    const response = await fetchWithContext(API_BASE, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -126,7 +127,7 @@ async function fetchAllFunding(account: string): Promise<HyperliquidFundingEntry
         startTime: 0,
         endTime,
       }),
-    });
+    }, "Hyperliquid");
 
     if (!response.ok) {
       throw new Error(`Hyperliquid API error (funding): ${response.status} ${response.statusText}`);
@@ -206,8 +207,22 @@ export const hyperliquidAdapter: PerpsAdapter = {
       fetchAllFunding(account),
     ]);
 
+    // Hyperliquid API only returns the 10,000 most recent fills.
+    // If we hit the pagination cap (MAX_PAGES * 2000), results are truncated.
+    const MAX_FILLS = 50 * 2000; // MAX_PAGES * page size
+    const fillsTruncated = fills.length >= MAX_FILLS;
+    const fundingTruncated = funding.length >= MAX_FILLS;
+
     const fillEvents = fills.map(normalizeFill);
     const fundingEvents = funding.map(normalizeFunding);
+
+    // Add truncation warning as a note on the first event if applicable
+    if ((fillsTruncated || fundingTruncated) && fillEvents.length > 0) {
+      fillEvents[0] = {
+        ...fillEvents[0],
+        notes: `[WARNING: Results may be truncated — API limit reached] ${fillEvents[0].notes}`,
+      };
+    }
 
     // Combine and sort by date ascending
     const allEvents = [...fillEvents, ...fundingEvents].sort((a, b) => {

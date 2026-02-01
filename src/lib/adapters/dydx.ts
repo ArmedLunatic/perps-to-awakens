@@ -1,5 +1,5 @@
 import { AwakensEvent, PerpsAdapter } from "../core/types";
-import { formatISODateUTC, truncateDecimals, parseAndTruncate } from "./utils";
+import { formatISODateUTC, truncateDecimals, parseAndTruncate, fetchWithContext } from "./utils";
 
 /**
  * dYdX v4 adapter.
@@ -79,7 +79,7 @@ async function fetchFills(address: string): Promise<DydxFill[]> {
     }
 
     const url = `${INDEXER_BASE}/fills?${params.toString()}`;
-    const response = await fetch(url);
+    const response = await fetchWithContext(url, undefined, "dYdX");
 
     if (!response.ok) {
       const text = await response.text();
@@ -121,12 +121,12 @@ async function fetchFundingPayments(address: string): Promise<DydxFundingPayment
     }
 
     const url = `${INDEXER_BASE}/historicalFunding/${address}?${params.toString()}`;
-    const response = await fetch(url);
+    const response = await fetchWithContext(url, undefined, "dYdX");
 
     if (!response.ok) {
       // Try the alternate endpoint path
       const altUrl = `${INDEXER_BASE}/fundingPayments?${params.toString()}`;
-      const altResponse = await fetch(altUrl);
+      const altResponse = await fetchWithContext(altUrl, undefined, "dYdX");
       if (!altResponse.ok) {
         const text = await altResponse.text();
         throw new Error(`dYdX Indexer API error (funding): ${altResponse.status} — ${text}`);
@@ -182,10 +182,12 @@ function normalizeFill(fill: DydxFill, index: number): AwakensEvent {
 
   if (fill.realizedPnl !== undefined && fill.realizedPnl !== null) {
     pnl = parseAndTruncate(fill.realizedPnl, `fill[${index}].realizedPnl`);
-    // A fill with non-zero realized PnL is a close.
-    // A fill with exactly 0 realized PnL is an open.
-    // Edge case: break-even close also has pnl=0, tagged as open.
-    // This is a known limitation of dYdX's data model.
+    // A fill with non-zero realized PnL is definitively a close.
+    // A fill with exactly 0 realized PnL is ambiguous: it could be an open
+    // OR a break-even close. We tag it as open_position with a note
+    // explaining the ambiguity. This is a correctness-first decision:
+    // misclassifying an open as a close would corrupt P&L, while
+    // misclassifying a break-even close as an open has zero P&L impact.
     isClose = pnl !== 0;
   } else {
     throw new Error(
@@ -210,7 +212,11 @@ function normalizeFill(fill: DydxFill, index: number): AwakensEvent {
     fee,
     pnl: isClose ? pnl : 0,
     paymentToken: isClose ? "USDC" : "",
-    notes: `${fill.side} ${fill.market} @ ${fill.price} (${fill.type}/${fill.liquidity})`,
+    notes: isClose
+      ? `${fill.side} ${fill.market} @ ${fill.price} (${fill.type}/${fill.liquidity})`
+      : pnl === 0 && fill.realizedPnl !== undefined
+        ? `${fill.side} ${fill.market} @ ${fill.price} (${fill.type}/${fill.liquidity}) [pnl=0: may be break-even close]`
+        : `${fill.side} ${fill.market} @ ${fill.price} (${fill.type}/${fill.liquidity})`,
     txHash,
     tag: isClose ? "close_position" : "open_position",
   };

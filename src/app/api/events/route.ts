@@ -29,6 +29,35 @@ export async function POST(request: NextRequest) {
         : undefined;
 
     const events = await adapter.getEvents(account.trim(), options);
+
+    // Runtime assertion: adapter must return an array
+    if (!Array.isArray(events)) {
+      return NextResponse.json(
+        { error: `Adapter "${platform}" returned non-array result. This is a bug.` },
+        { status: 500 }
+      );
+    }
+
+    // Runtime assertion: every event must have required fields
+    for (let i = 0; i < events.length; i++) {
+      const e = events[i];
+      if (!e || typeof e !== "object") {
+        return NextResponse.json(
+          { error: `Adapter "${platform}" returned invalid event at index ${i}.` },
+          { status: 500 }
+        );
+      }
+      if (typeof e.date !== "string" || typeof e.asset !== "string" ||
+          typeof e.amount !== "number" || typeof e.fee !== "number" ||
+          typeof e.pnl !== "number" || typeof e.txHash !== "string" ||
+          typeof e.tag !== "string") {
+        return NextResponse.json(
+          { error: `Adapter "${platform}" returned malformed event at index ${i}: missing or wrong-typed fields.` },
+          { status: 500 }
+        );
+      }
+    }
+
     const validationErrors = validateEvents(events);
 
     return NextResponse.json({
@@ -36,6 +65,7 @@ export async function POST(request: NextRequest) {
       validationErrors,
       count: events.length,
       platform: adapter.name,
+      mode: adapter.mode || "strict",
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";

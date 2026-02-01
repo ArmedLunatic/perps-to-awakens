@@ -67,7 +67,7 @@ function formatDate(timestampMs: string): string {
 
 function mistToSUI(mist: string): number {
   const value = Number(mist) / 1_000_000_000;
-  return parseFloat(value.toFixed(8));
+  return Math.trunc(value * 1e8) / 1e8; // Truncate to 8 decimal places (not round) for accounting correctness
 }
 
 export const suiStakingAdapter: PerpsAdapter = {

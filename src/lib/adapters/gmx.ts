@@ -1,5 +1,5 @@
 import { AwakensEvent, PerpsAdapter } from "../core/types";
-import { formatDateUTC, truncateDecimals } from "./utils";
+import { formatDateUTC, truncateDecimals, fetchWithContext } from "./utils";
 
 /**
  * GMX v2 (Synthetics) adapter — Arbitrum.
@@ -57,11 +57,16 @@ type GMXMarketsResponse = {
 
 // --- Market symbol resolution ---
 
-// Cache market address → symbol mapping
+// Cache market address → symbol mapping with TTL
 let marketCache: Map<string, string> | null = null;
+let marketCacheTimestamp = 0;
+const MARKET_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
 async function getMarketSymbols(): Promise<Map<string, string>> {
-  if (marketCache) return marketCache;
+  const now = Date.now();
+  if (marketCache && (now - marketCacheTimestamp) < MARKET_CACHE_TTL_MS) {
+    return marketCache;
+  }
 
   try {
     const response = await fetch(MARKETS_API);
@@ -71,13 +76,16 @@ async function getMarketSymbols(): Promise<Map<string, string>> {
       for (const [addr, info] of Object.entries(data)) {
         marketCache.set(addr.toLowerCase(), info.symbol);
       }
+      marketCacheTimestamp = now;
       return marketCache;
     }
   } catch {
-    // Fall through — we'll use address as fallback
+    // Fall through — use stale cache if available, empty map otherwise
+    if (marketCache) return marketCache;
   }
 
   marketCache = new Map();
+  marketCacheTimestamp = now;
   return marketCache;
 }
 
@@ -160,7 +168,7 @@ async function fetchTradeActions(account: string): Promise<GMXTradeAction[]> {
   const MAX_PAGES = 50;
 
   for (let page = 0; page < MAX_PAGES; page++) {
-    const response = await fetch(SUBSQUID_URL, {
+    const response = await fetchWithContext(SUBSQUID_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -171,7 +179,7 @@ async function fetchTradeActions(account: string): Promise<GMXTradeAction[]> {
           first: PAGE_SIZE,
         },
       }),
-    });
+    }, "GMX");
 
     if (!response.ok) {
       const text = await response.text();

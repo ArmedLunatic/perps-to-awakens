@@ -59,7 +59,7 @@ function yoctoToNEAR(yocto: string): number {
   // 1 NEAR = 10^24 yoctoNEAR
   // We need to handle very large numbers carefully
   const value = Number(yocto) / 1e24;
-  return parseFloat(value.toFixed(8));
+  return Math.trunc(value * 1e8) / 1e8; // Truncate to 8 decimal places (not round) for accounting correctness
 }
 
 export const nearStakingAdapter: PerpsAdapter = {

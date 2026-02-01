@@ -133,7 +133,7 @@ export const kadenaStakingAdapter: PerpsAdapter = {
               const amount = Number(event.params[2]);
               if (isNaN(amount) || amount <= 0) continue;
 
-              const truncatedAmount = parseFloat(amount.toFixed(8));
+              const truncatedAmount = Math.trunc(amount * 1e8) / 1e8; // Truncate to 8 decimal places (not round) for accounting correctness
 
               events.push({
                 date: formatDate(tx.metaData.blockTime),

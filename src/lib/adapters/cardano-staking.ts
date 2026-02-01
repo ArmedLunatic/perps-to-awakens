@@ -47,7 +47,7 @@ function formatDate(timestamp: number): string {
 
 function lovelaceToADA(lovelace: string): number {
   const value = Number(lovelace) / 1_000_000;
-  return parseFloat(value.toFixed(8));
+  return Math.trunc(value * 1e8) / 1e8; // Truncate to 8 decimal places (not round) for accounting correctness
 }
 
 export const cardanoStakingAdapter: PerpsAdapter = {

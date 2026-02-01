@@ -52,7 +52,7 @@ function formatDate(isoTimestamp: string): string {
 
 function mutezToXTZ(mutez: number): number {
   const value = mutez / 1_000_000;
-  return parseFloat(value.toFixed(8));
+  return Math.trunc(value * 1e8) / 1e8; // Truncate to 8 decimal places (not round) for accounting correctness
 }
 
 export const tezosStakingAdapter: PerpsAdapter = {

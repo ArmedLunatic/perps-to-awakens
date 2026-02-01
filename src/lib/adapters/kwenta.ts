@@ -1,5 +1,5 @@
 import { AwakensEvent, PerpsAdapter } from "../core/types";
-import { formatDateUTC, parseAndTruncate } from "./utils";
+import { formatDateUTC, parseAndTruncate, fetchWithContext } from "./utils";
 
 /**
  * Kwenta adapter — Close-only mode.
@@ -32,8 +32,14 @@ import { formatDateUTC, parseAndTruncate } from "./utils";
  *   - Max 5000 trades fetched (5 pages × 1000)
  */
 
+/**
+ * Kwenta subgraph endpoint.
+ * The Graph hosted service (api.thegraph.com) was sunset in 2024.
+ * Using The Graph's decentralized gateway. If this URL becomes unavailable,
+ * the adapter will throw a clear network error rather than silently fail.
+ */
 const SUBGRAPH_URL =
-  "https://api.thegraph.com/subgraphs/name/kwenta/optimism-perps";
+  "https://gateway.thegraph.com/api/subgraphs/id/2tTiLxz6JCcTBBHcNpFH4LRYzLZQFbDBiGmvaRnZWP5o";
 
 // --- Types ---
 
@@ -120,7 +126,7 @@ async function fetchTrades(account: string): Promise<KwentaTrade[]> {
 
   // Try direct account match first
   for (let page = 0; page < MAX_PAGES; page++) {
-    const response = await fetch(SUBGRAPH_URL, {
+    const response = await fetchWithContext(SUBGRAPH_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -130,7 +136,7 @@ async function fetchTrades(account: string): Promise<KwentaTrade[]> {
           skip: page * 1000,
         },
       }),
-    });
+    }, "Kwenta");
 
     if (!response.ok) {
       throw new Error(
@@ -156,7 +162,7 @@ async function fetchTrades(account: string): Promise<KwentaTrade[]> {
   // If no results, try abstractAccount (owner of smart margin account)
   if (allTrades.length === 0) {
     for (let page = 0; page < MAX_PAGES; page++) {
-      const response = await fetch(SUBGRAPH_URL, {
+      const response = await fetchWithContext(SUBGRAPH_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -166,7 +172,7 @@ async function fetchTrades(account: string): Promise<KwentaTrade[]> {
             skip: page * 1000,
           },
         }),
-      });
+      }, "Kwenta");
 
       if (!response.ok) break;
 

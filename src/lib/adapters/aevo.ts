@@ -1,5 +1,5 @@
 import { AwakensEvent, PerpsAdapter, AdapterOptions } from "../core/types";
-import { formatDateUTC, parseAndTruncate } from "./utils";
+import { formatDateUTC, parseAndTruncate, fetchWithContext } from "./utils";
 
 /**
  * Aevo adapter — Full implementation.
@@ -61,12 +61,12 @@ async function fetchTradeHistory(
       offset: String(page * PAGE_SIZE),
     });
 
-    const response = await fetch(`${AEVO_API}/trade-history?${params}`, {
+    const response = await fetchWithContext(`${AEVO_API}/trade-history?${params}`, {
       headers: {
         "AEVO-KEY": apiKey,
         "AEVO-SECRET": apiSecret,
       },
-    });
+    }, "Aevo");
 
     if (!response.ok) {
       const text = await response.text();

@@ -111,7 +111,7 @@ function createLevanaAdapter(config: LevanaChainConfig): PerpsAdapter {
               asset: marketId,
               amount: collateral,
               fee: 0,
-              pnl: parseFloat(pnl.toFixed(8)),
+              pnl: Math.trunc(pnl * 1e8) / 1e8, // Truncate to 8 decimal places (not round) for accounting correctness
               paymentToken: config.settlementToken,
               notes: `Levana ${config.name} ${trade.direction} close`,
               txHash: trade.tx_hash ?? `${market.market_addr}-${trade.trade_id}`,

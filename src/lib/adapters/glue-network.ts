@@ -129,7 +129,7 @@ export const glueNetworkAdapter: PerpsAdapter = {
           // Verify this event is for our account explicitly
           if (event.recipientAddress.toLowerCase() !== account.toLowerCase()) continue;
 
-          const amount = parseFloat(Number(event.amount).toFixed(8));
+          const amount = Math.trunc(Number(event.amount) * 1e8) / 1e8; // Truncate to 8 decimal places (not round) for accounting correctness
           if (isNaN(amount) || amount <= 0) continue;
 
           const notePrefix = {

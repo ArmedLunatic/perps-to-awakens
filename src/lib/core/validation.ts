@@ -11,8 +11,16 @@ const VALID_TAGS = new Set([
 const DATE_REGEX = /^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2}$/;
 
 /**
+ * Returns the maximum number of days in a given month/year.
+ */
+function daysInMonth(month: number, year: number): number {
+  // month is 1-indexed
+  return new Date(year, month, 0).getDate();
+}
+
+/**
  * Validates the date format: MM/DD/YYYY HH:MM:SS
- * Also validates that the date is actually parseable.
+ * Also validates that the date is actually parseable and calendar-correct.
  */
 function validateDate(date: string): string | null {
   if (!DATE_REGEX.test(date)) {
@@ -23,8 +31,9 @@ function validateDate(date: string): string | null {
   const [hour, minute, second] = timePart.split(":").map(Number);
 
   if (month < 1 || month > 12) return `Invalid month: ${month}`;
-  if (day < 1 || day > 31) return `Invalid day: ${day}`;
   if (year < 2000 || year > 2100) return `Invalid year: ${year}`;
+  const maxDay = daysInMonth(month, year);
+  if (day < 1 || day > maxDay) return `Invalid day: ${day} (max ${maxDay} for ${month}/${year})`;
   if (hour < 0 || hour > 23) return `Invalid hour: ${hour}`;
   if (minute < 0 || minute > 59) return `Invalid minute: ${minute}`;
   if (second < 0 || second > 59) return `Invalid second: ${second}`;
@@ -64,8 +73,25 @@ export function validateEvent(event: AwakensEvent, rowIndex: number): Validation
     errors.push({ row: rowIndex, field: "asset", message: "Asset is required", value: event.asset });
   }
 
+  // Amount must be a finite non-negative number
+  if (!Number.isFinite(event.amount)) {
+    errors.push({
+      row: rowIndex,
+      field: "amount",
+      message: `Amount must be a finite number`,
+      value: String(event.amount),
+    });
+  } else if (event.amount < 0) {
+    errors.push({
+      row: rowIndex,
+      field: "amount",
+      message: `Amount must be non-negative`,
+      value: event.amount.toString(),
+    });
+  }
+
   // Amount precision
-  if (decimalPlaces(event.amount) > 8) {
+  if (Number.isFinite(event.amount) && decimalPlaces(event.amount) > 8) {
     errors.push({
       row: rowIndex,
       field: "amount",
@@ -74,8 +100,25 @@ export function validateEvent(event: AwakensEvent, rowIndex: number): Validation
     });
   }
 
+  // Fee must be a finite non-negative number
+  if (!Number.isFinite(event.fee)) {
+    errors.push({
+      row: rowIndex,
+      field: "fee",
+      message: `Fee must be a finite number`,
+      value: String(event.fee),
+    });
+  } else if (event.fee < 0) {
+    errors.push({
+      row: rowIndex,
+      field: "fee",
+      message: `Fee must be non-negative`,
+      value: event.fee.toString(),
+    });
+  }
+
   // Fee precision
-  if (decimalPlaces(event.fee) > 8) {
+  if (Number.isFinite(event.fee) && decimalPlaces(event.fee) > 8) {
     errors.push({
       row: rowIndex,
       field: "fee",
@@ -84,8 +127,18 @@ export function validateEvent(event: AwakensEvent, rowIndex: number): Validation
     });
   }
 
+  // P&L must be a finite number
+  if (!Number.isFinite(event.pnl)) {
+    errors.push({
+      row: rowIndex,
+      field: "pnl",
+      message: `P&L must be a finite number`,
+      value: String(event.pnl),
+    });
+  }
+
   // P&L precision
-  if (decimalPlaces(event.pnl) > 8) {
+  if (Number.isFinite(event.pnl) && decimalPlaces(event.pnl) > 8) {
     errors.push({
       row: rowIndex,
       field: "pnl",

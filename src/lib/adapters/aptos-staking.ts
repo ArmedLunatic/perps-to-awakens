@@ -58,7 +58,7 @@ function formatDate(microseconds: string): string {
 
 function octoToAPT(octas: string): number {
   const value = Number(octas) / 100_000_000;
-  return parseFloat(value.toFixed(8));
+  return Math.trunc(value * 1e8) / 1e8; // Truncate to 8 decimal places (not round) for accounting correctness
 }
 
 export const aptosStakingAdapter: PerpsAdapter = {

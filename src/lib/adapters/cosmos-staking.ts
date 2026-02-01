@@ -47,7 +47,8 @@ function formatDate(isoTimestamp: string): string {
 
 function toHuman(raw: string, decimals: number): number {
   const value = Number(raw) / Math.pow(10, decimals);
-  return parseFloat(value.toFixed(8));
+  // Truncate to 8 decimal places (not round) for accounting correctness
+  return Math.trunc(value * 1e8) / 1e8;
 }
 
 function extractRewardAmount(
