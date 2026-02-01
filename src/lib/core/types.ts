@@ -62,3 +62,22 @@ export type ValidationError = {
   message: string;
   value: string;
 };
+
+/**
+ * Error classification for user-facing error recovery.
+ *
+ * - user-fixable: the user can resolve this by changing input (address format, API key, etc.)
+ * - mode-fixable: switching mode (strict → assisted) or adjusting scope could resolve it
+ * - system-blocked: a protocol or design limitation that cannot be resolved by the user
+ */
+export type ErrorClassification = "user-fixable" | "mode-fixable" | "system-blocked";
+
+/**
+ * Structured error returned from API with recovery guidance.
+ */
+export type ClassifiedError = {
+  type: "network" | "rate-limit" | "auth" | "validation" | "blocked-by-design" | "internal";
+  reason: string;
+  userAction?: string;
+  blockedByDesign: boolean;
+};

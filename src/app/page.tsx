@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
-import { AwakensEvent, ValidationError } from "@/lib/core/types";
+import { AwakensEvent, ValidationError, ClassifiedError } from "@/lib/core/types";
 import { generateCSV } from "@/lib/core/csv";
 import EventTable from "@/components/EventTable";
 
@@ -221,6 +221,8 @@ export default function Home() {
   const [events, setEvents] = useState<AwakensEvent[]>([]);
   const [validationErrors, setValidationErrors] = useState<ValidationError[]>([]);
   const [error, setError] = useState<string>("");
+  const [classifiedError, setClassifiedError] = useState<ClassifiedError | null>(null);
+  const [truncated, setTruncated] = useState(false);
   const [eventCount, setEventCount] = useState(0);
   const [viewMode, setViewMode] = useState<"list" | "table">("list");
 
@@ -343,6 +345,8 @@ export default function Home() {
     if (!account.trim()) return;
     setStep("loading");
     setError("");
+    setClassifiedError(null);
+    setTruncated(false);
 
     try {
       const body: Record<string, string> = {
@@ -362,12 +366,14 @@ export default function Home() {
       const data = await res.json();
 
       if (!res.ok) {
+        setClassifiedError(data.classified || null);
         throw new Error(data.error || `HTTP ${res.status}`);
       }
 
       setEvents(data.events);
       setValidationErrors(data.validationErrors || []);
       setEventCount(data.count);
+      setTruncated(data.truncated || false);
       setStep("preview");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to fetch events");
@@ -399,6 +405,8 @@ export default function Home() {
     setEvents([]);
     setValidationErrors([]);
     setError("");
+    setClassifiedError(null);
+    setTruncated(false);
     setEventCount(0);
   }
 
@@ -479,16 +487,57 @@ export default function Home() {
         </div>
       )}
 
-      {/* Error display */}
+      {/* Error display with classification and recovery guidance */}
       {error && (
-        <div className="mb-8 p-4 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm font-mono whitespace-pre-wrap animate-fade-in">
+        <div className={`mb-8 p-4 rounded-lg text-sm font-mono whitespace-pre-wrap animate-fade-in ${
+          classifiedError?.blockedByDesign
+            ? "bg-zinc-500/10 border border-zinc-500/20 text-zinc-400"
+            : classifiedError?.type === "rate-limit"
+            ? "bg-amber-500/10 border border-amber-500/20 text-amber-400"
+            : "bg-red-500/10 border border-red-500/20 text-red-400"
+        }`}>
           <div className="flex items-start gap-3">
-            <div className="w-5 h-5 rounded-full bg-red-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
-              <svg className="w-3 h-3 text-red-500" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-              </svg>
+            <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 ${
+              classifiedError?.blockedByDesign ? "bg-zinc-500/20" : classifiedError?.type === "rate-limit" ? "bg-amber-500/20" : "bg-red-500/20"
+            }`}>
+              {classifiedError?.blockedByDesign ? (
+                <svg className="w-3 h-3 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                </svg>
+              ) : (
+                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                </svg>
+              )}
             </div>
-            <div className="flex-1">{error}</div>
+            <div className="flex-1 space-y-2">
+              {/* Error type label */}
+              {classifiedError && (
+                <div className="text-[10px] font-semibold uppercase tracking-wider opacity-70">
+                  {classifiedError.blockedByDesign ? "Blocked by design" : classifiedError.type.replace("-", " ")}
+                </div>
+              )}
+              <div>{error}</div>
+              {/* Recovery action */}
+              {classifiedError?.userAction && !classifiedError.blockedByDesign && (
+                <div className="pt-2 border-t border-current/10 flex items-center gap-3">
+                  <span className="text-[11px] opacity-80">{classifiedError.userAction}</span>
+                  {(classifiedError.type === "network" || classifiedError.type === "rate-limit" || classifiedError.type === "internal") && (
+                    <button
+                      onClick={fetchEvents}
+                      className="px-3 py-1 text-[11px] font-semibold rounded-md border border-current/20 hover:bg-current/10 transition-colors duration-200"
+                    >
+                      Retry
+                    </button>
+                  )}
+                </div>
+              )}
+              {classifiedError?.blockedByDesign && (
+                <div className="pt-2 border-t border-current/10 text-[11px] opacity-80">
+                  This is a protocol limitation, not a bug. No workaround is available.
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -958,6 +1007,24 @@ export default function Home() {
             </div>
           </div>
 
+          {/* Truncation warning */}
+          {truncated && (
+            <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg animate-fade-in">
+              <div className="flex items-start gap-3">
+                <div className="w-6 h-6 rounded-full bg-amber-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <span className="text-amber-400 text-xs font-bold">!</span>
+                </div>
+                <div>
+                  <div className="text-amber-300 text-sm font-semibold">Results may be truncated</div>
+                  <div className="text-[12px] text-amber-400/80 mt-1 leading-relaxed">
+                    The API pagination limit was reached. Some older events may not be included in this export.
+                    The exported data is still accurate for the events shown, but may not represent your complete history.
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Integrity Panel */}
           <div className="relative bg-[var(--surface-2)] border border-[var(--border-subtle)] rounded-lg px-6 py-5 overflow-hidden">
             <div className="absolute top-0 left-0 right-0 h-px bg-[var(--border-strong)]" />
@@ -987,17 +1054,23 @@ export default function Home() {
                   </svg>
                 </div>
                 <div>
-                  <div className="text-red-400 text-sm font-semibold">Export blocked</div>
-                  <div className="text-[11px] text-red-400 mt-0.5">Validation errors must be resolved to protect accounting accuracy.</div>
+                  <div className="text-red-400 text-sm font-semibold">Export blocked — system-level validation failure</div>
+                  <div className="text-[11px] text-red-400/80 mt-0.5">
+                    These errors originate from the platform adapter data and cannot be resolved by changing your input.
+                    Export is blocked to protect accounting accuracy.
+                  </div>
                 </div>
               </div>
               <div className="space-y-1 text-[11px] font-mono text-red-400 max-h-40 overflow-y-auto">
                 {validationErrors.slice(0, 20).map((e, i) => (
-                  <div key={i}>Row {e.row}: [{e.field}] {e.message}</div>
+                  <div key={i}>Row {e.row}: [{e.field}] {e.message} <span className="text-red-400/50">(value: {e.value})</span></div>
                 ))}
                 {validationErrors.length > 20 && (
                   <div className="text-[var(--text-tertiary)] pt-1">... and {validationErrors.length - 20} more</div>
                 )}
+              </div>
+              <div className="mt-3 pt-3 border-t border-red-500/20 text-[11px] text-red-400/70">
+                Classification: SYSTEM-BLOCKED — This is a data integrity issue in the adapter output. No user action can resolve these errors.
               </div>
             </div>
           )}
@@ -1124,9 +1197,24 @@ export default function Home() {
                   </svg>
                 </div>
                 <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-1.5">No events found</h3>
-                <p className="text-[12px] text-[var(--text-tertiary)] leading-relaxed">
-                  No protocol-defined accounting events for this account. Check the address format or account activity.
+                <p className="text-[12px] text-[var(--text-tertiary)] leading-relaxed mb-4">
+                  No protocol-defined accounting events were returned for this account.
+                  This may mean the account has no qualifying activity, or the address format may be incorrect.
                 </p>
+                <div className="flex items-center justify-center gap-3">
+                  <button
+                    onClick={reset}
+                    className="px-4 py-2 text-[12px] font-medium border border-[var(--border-subtle)] rounded-md text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-2)] transition-all duration-200"
+                  >
+                    Try different account
+                  </button>
+                  <button
+                    onClick={() => { setStep("input"); setError(""); }}
+                    className="px-4 py-2 text-[12px] font-medium border border-[var(--accent-border)] rounded-md text-[var(--accent)] hover:bg-[var(--accent-dim)] transition-all duration-200"
+                  >
+                    Edit address
+                  </button>
+                </div>
               </div>
             </div>
           )}

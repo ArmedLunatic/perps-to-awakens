@@ -61,8 +61,9 @@ export async function fetchWithContext(
   init: RequestInit | undefined,
   platformName: string,
 ): Promise<Response> {
+  let response: Response;
   try {
-    return await fetch(url, init);
+    response = await fetch(url, init);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     if (message.includes("fetch failed") || message.includes("ECONNREFUSED") ||
@@ -76,6 +77,22 @@ export async function fetchWithContext(
     }
     throw new Error(`${platformName}: Request failed — ${message}`);
   }
+
+  // Classify common HTTP error statuses before returning
+  if (response.status === 429) {
+    throw new Error(
+      `${platformName}: Rate limited — the API rejected the request due to too many calls. ` +
+      `Wait a few minutes and try again.`
+    );
+  }
+  if (response.status === 401 || response.status === 403) {
+    throw new Error(
+      `${platformName}: Authentication failed (${response.status}). ` +
+      `Check your API key and secret, then retry.`
+    );
+  }
+
+  return response;
 }
 
 /**
