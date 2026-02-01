@@ -1,6 +1,25 @@
 # Perps to Awakens
 
-Convert perpetuals trading history from multiple platforms into a CSV that imports cleanly into [Awakens](https://awakens.com) with zero manual edits.
+> **Built for the Awaken Tax blockchain integration challenge**
+>
+> While the challenge requested simple blockchain scanners, this tool solves the
+> actual problem Awaken Tax users face: **DeFi protocol accounting complexity**.
+>
+> Rather than building a basic transaction viewer for one chain, this provides
+> accounting-grade export for the protocols where tax reporting is hardest:
+> perpetuals trading, staking rewards, and protocol-specific events across
+> 39+ platforms.
+>
+> See below for why protocol-level > chain-level for crypto tax software.
+
+## Why Protocol-Level Integration Matters
+
+Blockchain scanners show raw transactions. Tax software needs **accounting events**:
+- What was the realized P&L on this perps trade?
+- Which events are opens vs closes vs funding?
+- How do I format staking rewards correctly?
+
+This tool provides that layer — ready to import with zero manual fixes.
 
 ## Supported Platforms
 
