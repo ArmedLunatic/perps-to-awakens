@@ -60,12 +60,43 @@ export async function fetchWithContext(
   url: string,
   init: RequestInit | undefined,
   platformName: string,
+  timeoutMs: number = 60_000,
 ): Promise<Response> {
   let response: Response;
+  // Wire up timeout via AbortSignal, merged with any caller-provided signal
+  const timeoutController = new AbortController();
+  const timer = setTimeout(() => timeoutController.abort(), timeoutMs);
+  const callerSignal = init?.signal;
+
+  // If caller provided a signal, abort our timeout controller if it fires
+  if (callerSignal) {
+    if (callerSignal.aborted) {
+      clearTimeout(timer);
+      timeoutController.abort();
+    } else {
+      callerSignal.addEventListener("abort", () => {
+        clearTimeout(timer);
+        timeoutController.abort();
+      }, { once: true });
+    }
+  }
+
   try {
-    response = await fetch(url, init);
+    response = await fetch(url, { ...init, signal: timeoutController.signal });
   } catch (err: unknown) {
+    clearTimeout(timer);
     const message = err instanceof Error ? err.message : String(err);
+
+    // Distinguish user cancellation from timeout from network errors
+    if (callerSignal?.aborted) {
+      throw new Error(`${platformName}: Request cancelled by user.`);
+    }
+    if (timeoutController.signal.aborted && (message.includes("abort") || message.includes("AbortError"))) {
+      throw new Error(
+        `${platformName}: Request timed out after ${Math.round(timeoutMs / 1000)}s. ` +
+        `The API may be slow or unreachable. Try again later.`
+      );
+    }
     if (message.includes("fetch failed") || message.includes("ECONNREFUSED") ||
         message.includes("ENOTFOUND") || message.includes("ETIMEDOUT") ||
         message.includes("network") || message.includes("abort")) {
@@ -77,6 +108,7 @@ export async function fetchWithContext(
     }
     throw new Error(`${platformName}: Request failed — ${message}`);
   }
+  clearTimeout(timer);
 
   // Classify common HTTP error statuses before returning
   if (response.status === 429) {

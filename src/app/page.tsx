@@ -20,29 +20,6 @@ const PLATFORM_MODES: Record<string, "strict" | "assisted" | "partial" | "blocke
   "glue-network": "partial",
 };
 
-// ─── Usecase definitions ───
-type Usecase = "perps" | "staking" | "advanced";
-
-const USECASES: { id: Usecase; label: string; description: string; families: string[] }[] = [
-  {
-    id: "perps",
-    label: "Perpetuals Trading",
-    description: "Export realized P&L and funding from perps platforms",
-    families: ["evm-perps", "cosmwasm-perps"],
-  },
-  {
-    id: "staking",
-    label: "Staking & Protocol Rewards",
-    description: "Export protocol-defined rewards and penalties",
-    families: ["substrate-staking", "cosmos-staking", "tezos-staking", "near-staking", "algorand-staking", "avalanche-staking"],
-  },
-  {
-    id: "advanced",
-    label: "Advanced / Partial Support",
-    description: "Niche chains with explicit but limited accounting events",
-    families: ["cardano-staking", "eth-validator", "solana-staking", "kadena-mining", "aptos-staking", "sui-staking", "glue-network"],
-  },
-];
 
 const PLATFORMS = [
   // --- EVM/REST Perps ---
@@ -229,7 +206,10 @@ const ADDRESS_PATTERNS: { match: (addr: string) => boolean; platformIds: string[
   { match: (a) => /^5[a-zA-Z0-9]/.test(a) && a.length > 20, platformIds: ["westend-staking", "rococo-staking", "bittensor-staking", "astar-staking", "shiden-staking"] },
   { match: (a) => /^7[a-zA-Z0-9]/.test(a) && a.length > 20, platformIds: ["hydradx-staking"] },
   { match: (a) => a.length >= 58 && /^[A-Z2-7]+$/.test(a), platformIds: ["algorand-staking"] },
-  { match: (a) => a.startsWith("0x"), platformIds: ["hyperliquid", "gmx", "aevo", "kwenta", "moonbeam-staking", "moonriver-staking", "aptos-staking", "sui-staking", "glue-network"] },
+  // EVM addresses: 0x + 40 hex chars = 42 total length
+  { match: (a) => /^0x[0-9a-fA-F]{40}$/.test(a), platformIds: ["hyperliquid", "gmx", "aevo", "kwenta", "moonbeam-staking", "moonriver-staking", "glue-network"] },
+  // Aptos/Sui addresses: 0x + 64 hex chars = 66 total length
+  { match: (a) => /^0x[0-9a-fA-F]{64}$/.test(a), platformIds: ["aptos-staking", "sui-staking"] },
 ];
 
 function detectPlatformsForAddress(address: string): typeof PLATFORMS {
@@ -296,6 +276,7 @@ export default function Home() {
   const [currentPage, setCurrentPage] = useState(1);
   const [sortKey, setSortKey] = useState<keyof AwakensEvent>("date");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const [filterYear, setFilterYear] = useState<string>("all");
 
   // ─── Dark mode state ───
   const [darkMode, setDarkMode] = useState(true);
@@ -307,6 +288,13 @@ export default function Home() {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const paletteBodyRef = useRef<HTMLDivElement>(null);
   const addressInputRef = useRef<HTMLInputElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // ─── Clear error state helper ───
+  function clearError() {
+    setError("");
+    setClassifiedError(null);
+  }
 
   // ─── Derive platform info ───
   const currentPlatform = PLATFORMS.find((p) => p.id === platform);
@@ -357,12 +345,33 @@ export default function Home() {
   }, [groupedResults]);
 
   // ─── Filtered + paginated events for preview ───
-  const filteredEvents = useMemo(() => {
-    let result = events;
+  // Compute available years from events for dropdown
+  const availableYears = useMemo(() => {
+    const years = new Set<string>();
+    events.forEach((e) => {
+      // Date format: MM/DD/YYYY HH:MM:SS
+      const year = e.date.split(" ")[0]?.split("/")[2];
+      if (year) years.add(year);
+    });
+    return [...years].sort();
+  }, [events]);
+
+  // Track original indices through filter + sort so validation errors map correctly
+  const filteredEventsWithIndex = useMemo(() => {
+    let result = events.map((e, i) => ({ event: e, originalIndex: i }));
+
+    // Tax year filter
+    if (filterYear !== "all") {
+      result = result.filter(({ event: e }) => {
+        const year = e.date.split(" ")[0]?.split("/")[2];
+        return year === filterYear;
+      });
+    }
+
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       result = result.filter(
-        (e) =>
+        ({ event: e }) =>
           e.txHash.toLowerCase().includes(q) ||
           e.tag.toLowerCase().includes(q) ||
           e.asset.toLowerCase().includes(q) ||
@@ -371,9 +380,9 @@ export default function Home() {
       );
     }
     // Apply page-level sorting so sort applies across all pages
-    return [...result].sort((a, b) => {
-      const aVal = a[sortKey];
-      const bVal = b[sortKey];
+    return result.sort((a, b) => {
+      const aVal = a.event[sortKey];
+      const bVal = b.event[sortKey];
       if (typeof aVal === "number" && typeof bVal === "number") {
         return sortDir === "asc" ? aVal - bVal : bVal - aVal;
       }
@@ -381,19 +390,24 @@ export default function Home() {
       const bStr = String(bVal);
       return sortDir === "asc" ? aStr.localeCompare(bStr) : bStr.localeCompare(aStr);
     });
-  }, [events, searchQuery, sortKey, sortDir]);
+  }, [events, searchQuery, sortKey, sortDir, filterYear]);
+
+  // Flat array for backward compat (CSV export, count display, etc.)
+  const filteredEvents = useMemo(() => filteredEventsWithIndex.map(({ event }) => event), [filteredEventsWithIndex]);
 
   const totalPages = Math.max(1, Math.ceil(filteredEvents.length / ITEMS_PER_PAGE));
 
-  const paginatedEvents = useMemo(() => {
+  const paginatedEventsWithIndex = useMemo(() => {
     const start = (currentPage - 1) * ITEMS_PER_PAGE;
-    return filteredEvents.slice(start, start + ITEMS_PER_PAGE);
-  }, [filteredEvents, currentPage]);
+    return filteredEventsWithIndex.slice(start, start + ITEMS_PER_PAGE);
+  }, [filteredEventsWithIndex, currentPage]);
 
-  // Reset page when search changes
+  const paginatedEvents = useMemo(() => paginatedEventsWithIndex.map(({ event }) => event), [paginatedEventsWithIndex]);
+
+  // Reset page when search or year filter changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery]);
+  }, [searchQuery, filterYear]);
 
   // ─── Dark mode initialization ───
   useEffect(() => {
@@ -407,6 +421,21 @@ export default function Home() {
     document.documentElement.classList.toggle("dark", next);
     localStorage.setItem("theme", next ? "dark" : "light");
   }
+
+  // ─── Mouse tracking for hover glow effects ───
+  useEffect(() => {
+    function handleMouseMove(e: MouseEvent) {
+      const target = e.target as HTMLElement;
+      const card = target.closest(".platform-card, .btn-primary") as HTMLElement | null;
+      if (card) {
+        const rect = card.getBoundingClientRect();
+        card.style.setProperty("--mouse-x", `${e.clientX - rect.left}px`);
+        card.style.setProperty("--mouse-y", `${e.clientY - rect.top}px`);
+      }
+    }
+    document.addEventListener("mousemove", handleMouseMove);
+    return () => document.removeEventListener("mousemove", handleMouseMove);
+  }, []);
 
   // ─── Focus address input on mount ───
   useEffect(() => {
@@ -463,7 +492,7 @@ export default function Home() {
     const detected = detectPlatformsForAddress(addr);
     setDetectedPlatforms(detected);
     setStep("detect");
-    setError("");
+    clearError();
   }
 
   function selectPlatform(id: string) {
@@ -475,7 +504,7 @@ export default function Home() {
     if (!account.trim()) {
       setDetectedPlatforms(PLATFORMS.filter(p => p.id === id));
       setStep("detect");
-      setError("");
+      clearError();
       return;
     }
 
@@ -486,7 +515,7 @@ export default function Home() {
       setSkipAuth(true);
       fetchEventsForPlatform(id);
     }
-    setError("");
+    clearError();
   }
 
   const handlePaletteKeyDown = useCallback(
@@ -509,11 +538,23 @@ export default function Home() {
     [flatResults, activeIndex]
   );
 
+  function cancelFetch() {
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+    clearError();
+    setStep("detect");
+  }
+
   async function fetchEventsForPlatform(platformId: string) {
     if (!account.trim()) return;
+
+    // Abort any in-flight request
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setStep("loading");
-    setError("");
-    setClassifiedError(null);
+    clearError();
     setTruncated(false);
 
     try {
@@ -529,6 +570,7 @@ export default function Home() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
+        signal: controller.signal,
       });
 
       const data = await res.json();
@@ -562,8 +604,14 @@ export default function Home() {
       setCurrentPage(1);
       setStep("preview");
     } catch (err: unknown) {
+      // Don't show errors for user-initiated cancellations
+      if (controller.signal.aborted) return;
       setError(err instanceof Error ? err.message : "Failed to fetch events");
       setStep("detect");
+    } finally {
+      if (abortControllerRef.current === controller) {
+        abortControllerRef.current = null;
+      }
     }
   }
 
@@ -571,14 +619,24 @@ export default function Home() {
     await fetchEventsForPlatform(platform);
   }
 
+  // Export uses filtered events (respects year filter) but ignores search query
+  const exportEvents = useMemo(() => {
+    if (filterYear === "all") return events;
+    return events.filter((e) => {
+      const year = e.date.split(" ")[0]?.split("/")[2];
+      return year === filterYear;
+    });
+  }, [events, filterYear]);
+
   function downloadCSV() {
     try {
-      const csv = generateCSV(events);
+      const csv = generateCSV(exportEvents);
       const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${platform}-awakens-${Date.now()}.csv`;
+      const yearSuffix = filterYear !== "all" ? `-${filterYear}` : "";
+      a.download = `${platform}-awakens${yearSuffix}-${Date.now()}.csv`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (err: unknown) {
@@ -588,12 +646,13 @@ export default function Home() {
 
   function downloadJSON() {
     if (validationErrors.length > 0) return;
-    const json = JSON.stringify(events, null, 2);
+    const json = JSON.stringify(exportEvents, null, 2);
     const blob = new Blob([json], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${platform}-awakens-${Date.now()}.json`;
+    const yearSuffix = filterYear !== "all" ? `-${filterYear}` : "";
+    a.download = `${platform}-awakens${yearSuffix}-${Date.now()}.json`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -613,6 +672,7 @@ export default function Home() {
     setDetectedPlatforms([]);
     setSearchQuery("");
     setCurrentPage(1);
+    setFilterYear("all");
     setSkipAuth(false);
     setViewMode("list");
     setSortKey("date");
@@ -943,7 +1003,7 @@ export default function Home() {
             </span>
           </button>
 
-          <button onClick={() => { setStep("address"); setError(""); }} className="flex items-center gap-1.5 text-[12px] font-mono text-[var(--text-tertiary)] hover:text-[var(--accent)] transition-colors duration-200">
+          <button onClick={() => { setStep("address"); clearError(); }} className="flex items-center gap-1.5 text-[12px] font-mono text-[var(--text-tertiary)] hover:text-[var(--accent)] transition-colors duration-200">
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
             </svg>
@@ -1055,7 +1115,7 @@ export default function Home() {
             </button>
           </div>
 
-          <button onClick={() => { setStep("detect"); setError(""); }} className="flex items-center gap-1.5 text-[12px] font-mono text-[var(--text-tertiary)] hover:text-[var(--accent)] transition-colors duration-200">
+          <button onClick={() => { setStep("detect"); clearError(); }} className="flex items-center gap-1.5 text-[12px] font-mono text-[var(--text-tertiary)] hover:text-[var(--accent)] transition-colors duration-200">
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
             </svg>
@@ -1086,6 +1146,12 @@ export default function Home() {
                 <div key={i} className="w-1 h-1 rounded-full bg-[var(--accent)]" style={{ animation: "breathe 1.2s ease-in-out infinite", animationDelay: `${i * 200}ms` }} />
               ))}
             </div>
+            <button
+              onClick={cancelFetch}
+              className="mt-4 px-4 py-2 text-[12px] font-medium border border-[var(--border-subtle)] rounded-md text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-2)] transition-all duration-200"
+            >
+              Cancel
+            </button>
           </div>
         </div>
       )}
@@ -1261,6 +1327,20 @@ export default function Home() {
           {/* Search + pagination controls */}
           {events.length > 0 && (
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+              {/* Tax year filter */}
+              {availableYears.length > 1 && (
+                <select
+                  value={filterYear}
+                  onChange={(e) => setFilterYear(e.target.value)}
+                  className="px-3 py-2 bg-[var(--surface-2)] border border-[var(--border-medium)] rounded-md font-mono text-xs text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] focus:border-[var(--accent-border)] transition-all duration-200"
+                >
+                  <option value="all">All years ({events.length})</option>
+                  {availableYears.map((year) => {
+                    const count = events.filter((e) => e.date.split(" ")[0]?.split("/")[2] === year).length;
+                    return <option key={year} value={year}>{year} ({count})</option>;
+                  })}
+                </select>
+              )}
               {/* Search */}
               <div className="relative flex-1 w-full sm:max-w-sm">
                 <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -1333,8 +1413,7 @@ export default function Home() {
               {/* List view */}
               {viewMode === "list" && (
                 <div className="space-y-1.5 stagger">
-                  {paginatedEvents.map((event, i) => {
-                    const globalIndex = (currentPage - 1) * ITEMS_PER_PAGE + i;
+                  {paginatedEventsWithIndex.map(({ event, originalIndex }, i) => {
                     const tagColors: Record<string, string> = {
                       open_position: "text-blue-400",
                       close_position: "text-teal-400",
@@ -1350,11 +1429,11 @@ export default function Home() {
                       slashing: "bg-rose-400",
                     };
                     const pnlColor = event.pnl > 0 ? "text-emerald-400" : event.pnl < 0 ? "text-red-400" : "text-[var(--text-tertiary)]";
-                    const hasErrors = validationErrors.some((e) => e.row === globalIndex);
+                    const hasErrors = validationErrors.some((e) => e.row === originalIndex);
 
                     return (
                       <details
-                        key={`${event.txHash}-${globalIndex}`}
+                        key={`${event.txHash}-${originalIndex}`}
                         className={`event-item animate-fade-in group rounded-lg border transition-all duration-200 ${
                           hasErrors
                             ? darkMode ? "border-red-500/20 bg-red-500/[0.08]" : "border-red-300/40 bg-red-50"
@@ -1409,7 +1488,7 @@ export default function Home() {
                             )}
                             {hasErrors && (
                               <div className="col-span-2 mt-1 text-red-400">
-                                {validationErrors.filter((e) => e.row === globalIndex).map((err, idx) => (
+                                {validationErrors.filter((e) => e.row === originalIndex).map((err, idx) => (
                                   <div key={idx}>[{err.field}] {err.message}</div>
                                 ))}
                               </div>
@@ -1488,7 +1567,7 @@ export default function Home() {
                     Try different account
                   </button>
                   <button
-                    onClick={() => { setStep("address"); setError(""); }}
+                    onClick={() => { setStep("address"); clearError(); }}
                     className="px-4 py-2 text-[12px] font-medium border border-[var(--accent-border)] rounded-md text-[var(--accent)] hover:bg-[var(--accent-dim)] transition-all duration-200"
                   >
                     Edit address
