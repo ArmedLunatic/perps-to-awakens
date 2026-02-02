@@ -1,256 +1,28 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
+import Link from "next/link";
 import { AwakensEvent, ValidationError, ClassifiedError } from "@/lib/core/types";
 import { generateCSV } from "@/lib/core/csv";
 import EventTable from "@/components/EventTable";
-
-// ─── Mode mapping (client-side only, no backend changes) ───
-const PLATFORM_MODES: Record<string, "strict" | "assisted" | "partial" | "blocked"> = {
-  "levana-osmosis": "assisted",
-  "levana-injective": "assisted",
-  "levana-neutron": "assisted",
-  "levana-juno": "assisted",
-  "cardano-staking": "partial",
-  "eth-validator": "partial",
-  "solana-staking": "partial",
-  "kadena-mining": "partial",
-  "aptos-staking": "partial",
-  "sui-staking": "partial",
-  "glue-network": "partial",
-};
-
-
-const PLATFORMS = [
-  // --- EVM/REST Perps ---
-  { id: "hyperliquid", name: "Hyperliquid", ready: true, placeholder: "0x...", hint: "Ethereum address (0x...)", requiresAuth: false, family: "evm-perps" },
-  { id: "dydx", name: "dYdX v4", ready: true, placeholder: "dydx1...", hint: "dYdX bech32 address", requiresAuth: false, family: "evm-perps" },
-  { id: "gmx", name: "GMX", ready: true, placeholder: "0x...", hint: "Ethereum address (Arbitrum)", requiresAuth: false, family: "evm-perps" },
-  { id: "aevo", name: "Aevo", ready: true, placeholder: "0x...", hint: "Ethereum address + API key", requiresAuth: true, family: "evm-perps" },
-  { id: "kwenta", name: "Kwenta", ready: true, placeholder: "0x...", hint: "Optimism address (close-only mode)", requiresAuth: false, family: "evm-perps" },
-
-  // --- Substrate Staking ---
-  { id: "polkadot-staking", name: "Polkadot", ready: true, placeholder: "1...", hint: "SS58 address — staking rewards & slashing", requiresAuth: false, family: "substrate-staking" },
-  { id: "kusama-staking", name: "Kusama", ready: true, placeholder: "C...", hint: "SS58 address — staking rewards & slashing", requiresAuth: false, family: "substrate-staking" },
-  { id: "westend-staking", name: "Westend", ready: true, placeholder: "5...", hint: "SS58 address — testnet staking", requiresAuth: false, family: "substrate-staking" },
-  { id: "rococo-staking", name: "Rococo", ready: true, placeholder: "5...", hint: "SS58 address — testnet staking", requiresAuth: false, family: "substrate-staking" },
-  { id: "statemint-staking", name: "Statemint", ready: true, placeholder: "1...", hint: "SS58 address — Asset Hub (Polkadot)", requiresAuth: false, family: "substrate-staking" },
-  { id: "statemine-staking", name: "Statemine", ready: true, placeholder: "C...", hint: "SS58 address — Asset Hub (Kusama)", requiresAuth: false, family: "substrate-staking" },
-  { id: "bittensor-staking", name: "Bittensor", ready: true, placeholder: "5...", hint: "SS58 address — staking rewards & slashing", requiresAuth: false, family: "substrate-staking" },
-  { id: "hydradx-staking", name: "HydraDX", ready: true, placeholder: "7...", hint: "SS58 address — staking rewards & slashing", requiresAuth: false, family: "substrate-staking" },
-  { id: "astar-staking", name: "Astar", ready: true, placeholder: "5...", hint: "SS58 address — staking rewards & slashing", requiresAuth: false, family: "substrate-staking" },
-  { id: "shiden-staking", name: "Shiden", ready: true, placeholder: "5...", hint: "SS58 address — staking rewards & slashing", requiresAuth: false, family: "substrate-staking" },
-  { id: "moonbeam-staking", name: "Moonbeam", ready: true, placeholder: "0x...", hint: "H160 address — DPoS staking only", requiresAuth: false, family: "substrate-staking" },
-  { id: "moonriver-staking", name: "Moonriver", ready: true, placeholder: "0x...", hint: "H160 address — DPoS staking only", requiresAuth: false, family: "substrate-staking" },
-
-  // --- Cosmos SDK Staking ---
-  { id: "cosmos-hub-staking", name: "Cosmos Hub", ready: true, placeholder: "cosmos1...", hint: "Bech32 address — staking rewards & slashing", requiresAuth: false, family: "cosmos-staking" },
-  { id: "osmosis-staking", name: "Osmosis Staking", ready: true, placeholder: "osmo1...", hint: "Bech32 address — staking only", requiresAuth: false, family: "cosmos-staking" },
-  { id: "neutron-staking", name: "Neutron Staking", ready: true, placeholder: "neutron1...", hint: "Bech32 address — staking rewards & slashing", requiresAuth: false, family: "cosmos-staking" },
-  { id: "juno-staking", name: "Juno Staking", ready: true, placeholder: "juno1...", hint: "Bech32 address — staking rewards & slashing", requiresAuth: false, family: "cosmos-staking" },
-  { id: "stride-staking", name: "Stride Staking", ready: true, placeholder: "stride1...", hint: "Bech32 address — staking rewards & slashing", requiresAuth: false, family: "cosmos-staking" },
-  { id: "akash-staking", name: "Akash Staking", ready: true, placeholder: "akash1...", hint: "Bech32 address — staking rewards & slashing", requiresAuth: false, family: "cosmos-staking" },
-  { id: "secret-staking", name: "Secret Network", ready: true, placeholder: "secret1...", hint: "Bech32 address — staking rewards & slashing", requiresAuth: false, family: "cosmos-staking" },
-
-  // --- CosmWasm Perps — Levana ---
-  { id: "levana-osmosis", name: "Levana (Osmosis)", ready: true, placeholder: "osmo1...", hint: "Bech32 address — perps open/close", requiresAuth: false, family: "cosmwasm-perps" },
-  { id: "levana-injective", name: "Levana (Injective)", ready: true, placeholder: "inj1...", hint: "Bech32 address — perps open/close", requiresAuth: false, family: "cosmwasm-perps" },
-  { id: "levana-neutron", name: "Levana (Neutron)", ready: true, placeholder: "neutron1...", hint: "Bech32 address — perps open/close", requiresAuth: false, family: "cosmwasm-perps" },
-  { id: "levana-juno", name: "Levana (Juno)", ready: true, placeholder: "juno1...", hint: "Bech32 address — perps open/close", requiresAuth: false, family: "cosmwasm-perps" },
-
-  // --- Tezos Staking ---
-  { id: "tezos-staking", name: "Tezos", ready: true, placeholder: "tz1...", hint: "Tezos address — baking & delegation rewards, slashing", requiresAuth: false, family: "tezos-staking" },
-
-  // --- Cardano Staking (Partial) ---
-  { id: "cardano-staking", name: "Cardano", ready: true, placeholder: "stake1...", hint: "Stake address — reward withdrawals only (requires Blockfrost API key)", requiresAuth: true, family: "cardano-staking" },
-
-  // --- NEAR Protocol Staking ---
-  { id: "near-staking", name: "NEAR Protocol", ready: true, placeholder: "alice.near", hint: "NEAR account — staking rewards & slashing", requiresAuth: false, family: "near-staking" },
-
-  // --- Ethereum Validator (Partial) ---
-  { id: "eth-validator", name: "Ethereum Validator", ready: true, placeholder: "12345", hint: "Validator index or pubkey — consensus-layer rewards only", requiresAuth: false, family: "eth-validator" },
-
-  // --- Algorand Staking (Strict) ---
-  { id: "algorand-staking", name: "Algorand", ready: true, placeholder: "ABC...XYZ", hint: "Algorand address — participation rewards only", requiresAuth: false, family: "algorand-staking" },
-
-  // --- Avalanche P-Chain Staking (Strict) ---
-  { id: "avalanche-staking", name: "Avalanche P-Chain", ready: true, placeholder: "P-avax1...", hint: "P-chain address — validator/delegator rewards only", requiresAuth: false, family: "avalanche-staking" },
-
-  // --- Solana Staking (Partial) ---
-  { id: "solana-staking", name: "Solana Staking", ready: true, placeholder: "Stake...", hint: "Stake account — epoch reward credits only (no balance inference)", requiresAuth: false, family: "solana-staking" },
-
-  // --- Kadena Mining (Partial) ---
-  { id: "kadena-mining", name: "Kadena", ready: true, placeholder: "k:abc123...", hint: "Kadena account — explicit coinbase rewards only", requiresAuth: false, family: "kadena-mining" },
-
-  // --- Aptos Staking (Partial) ---
-  { id: "aptos-staking", name: "Aptos", ready: true, placeholder: "0x...", hint: "Aptos address — explicit staking reward events only", requiresAuth: false, family: "aptos-staking" },
-
-  // --- Sui Staking (Partial) ---
-  { id: "sui-staking", name: "Sui", ready: true, placeholder: "0x...", hint: "Sui address — staking reward withdrawals only", requiresAuth: false, family: "sui-staking" },
-
-  // --- Glue Network (Partial) ---
-  { id: "glue-network", name: "Glue Network", ready: true, placeholder: "0x...", hint: "Explicit protocol rewards and settlement events only", requiresAuth: false, family: "glue-network" },
-
-  // --- CosmWasm Perps — Mars (Stub) ---
-  { id: "mars-osmosis", name: "Mars (Osmosis)", ready: false, placeholder: "", hint: "No confirmed per-trade realized PnL", requiresAuth: false, family: "cosmwasm-perps" },
-  { id: "mars-neutron", name: "Mars (Neutron)", ready: false, placeholder: "", hint: "No confirmed per-trade realized PnL", requiresAuth: false, family: "cosmwasm-perps" },
-
-  // --- Stubbed EVM/REST Perps ---
-  { id: "jupiter", name: "Jupiter Perps", ready: false, placeholder: "", hint: "No trade history API", requiresAuth: false, family: "evm-perps" },
-  { id: "drift", name: "Drift", ready: false, placeholder: "", hint: "No per-trade P&L in API", requiresAuth: false, family: "evm-perps" },
-  { id: "vertex", name: "Vertex", ready: false, placeholder: "", hint: "No per-trade P&L", requiresAuth: false, family: "evm-perps" },
-  { id: "mux", name: "MUX Protocol", ready: false, placeholder: "", hint: "Aggregator — fragmented data", requiresAuth: false, family: "evm-perps" },
-  { id: "osmosis", name: "Osmosis Perps", ready: false, placeholder: "", hint: "No indexer available", requiresAuth: false, family: "cosmwasm-perps" },
-  { id: "synthetix", name: "Synthetix v3", ready: false, placeholder: "", hint: "Account NFT resolution", requiresAuth: false, family: "evm-perps" },
-  { id: "perennial", name: "Perennial", ready: false, placeholder: "", hint: "No public subgraph endpoint", requiresAuth: false, family: "evm-perps" },
-];
-
-// ─── Platform-level documentation ───
-const PLATFORM_DOCS: Record<string, { supported: string[]; blocked: string[]; why: string }> = {
-  "tezos-staking": {
-    supported: ["Baking rewards", "Delegation rewards", "Slashing (double-baking/endorsing)"],
-    blocked: ["DeFi activity", "Token transfers", "Balance inference", "Liquidity baking subsidies"],
-    why: "Tezos protocol emits explicit reward and penalty events via TzKT indexer.",
-  },
-  "cardano-staking": {
-    supported: ["Reward withdrawal transactions (on-chain events only)"],
-    blocked: ["Epoch reward accrual (off-ledger computation)", "Balance snapshots", "Stake pool delegation changes", "ISPO/token rewards"],
-    why: "Cardano accrues rewards per-epoch without on-chain events. Only explicit withdrawal transactions are deterministic.",
-  },
-  "near-staking": {
-    supported: ["Staking rewards (explicit receipts)", "Slashing penalties"],
-    blocked: ["DeFi activity", "Token transfers", "Balance inference", "Lockup contract rewards"],
-    why: "NEAR emits explicit action receipts for staking operations via Nearblocks indexer.",
-  },
-  "eth-validator": {
-    supported: ["Consensus-layer rewards (attestation, proposer, sync committee)"],
-    blocked: ["Execution-layer rewards (tx fees, priority fees)", "MEV rewards", "Withdrawal events", "Restaking rewards (EigenLayer)"],
-    why: "Only CL rewards are protocol-defined with deterministic attribution. EL rewards require inference.",
-  },
-  "algorand-staking": {
-    supported: ["Explicit participation rewards (protocol-emitted per-account events)"],
-    blocked: ["DeFi activity", "Token transfers", "Balance inference", "ASA rewards", "Governance rewards (off-chain)"],
-    why: "Algorand emits explicit reward events via the Indexer. Governance rewards are off-chain and excluded.",
-  },
-  "avalanche-staking": {
-    supported: ["Validator staking rewards (explicit reward UTXOs)", "Delegator staking rewards"],
-    blocked: ["Subnet DeFi", "C-chain/X-chain transfers", "Trade inference", "Liquid staking (sAVAX)"],
-    why: "Avalanche P-chain emits explicit reward UTXOs when validation/delegation periods end.",
-  },
-  "solana-staking": {
-    supported: ["Explicit epoch reward credits (via getInflationReward RPC)"],
-    blocked: ["Balance-delta epoch inference", "Swaps / DEX activity", "NFT activity", "Liquid staking (mSOL, jitoSOL)", "MEV / Jito tips"],
-    why: "Solana RPC returns explicit per-account reward amounts per epoch. We do NOT infer from balance changes.",
-  },
-  "kadena-mining": {
-    supported: ["Explicit coinbase rewards where miner address is protocol-defined"],
-    blocked: ["Per-account rewards not explicit in block events", "Gas fees as income", "DeFi activity", "Balance inference"],
-    why: "Kadena emits coinbase events with explicit miner address and amount. Only these are exported.",
-  },
-  "aptos-staking": {
-    supported: ["Explicit DistributeRewardsEvent from staking module"],
-    blocked: ["DeFi activity", "Token transfers", "Balance inference", "Liquid staking rewards"],
-    why: "Aptos emits reward distribution events on the staking module with explicit amounts.",
-  },
-  "sui-staking": {
-    supported: ["Staking reward withdrawals (explicit protocol events)"],
-    blocked: ["DeFi activity", "Token transfers", "Balance inference", "Liquid staking rewards (afSUI, haSUI)"],
-    why: "Sui emits explicit events when staking rewards are withdrawn. Estimated rewards are intentionally excluded.",
-  },
-  "glue-network": {
-    supported: ["Explicit protocol reward distributions", "Explicit incentive claims", "Explicit settlement events (realized per-account values only)"],
-    blocked: ["Trade reconstruction", "Swap inference", "Balance-based activity", "Cross-chain message value estimation", "LP position tracking"],
-    why: "Only protocol-emitted per-account events are exported. All inference-based activity is blocked.",
-  },
-};
-
-// ─── Family labels for grouping ───
-const FAMILY_LABELS: Record<string, string> = {
-  "evm-perps": "EVM Perps",
-  "cosmwasm-perps": "CosmWasm Perps",
-  "substrate-staking": "Substrate Staking",
-  "cosmos-staking": "Cosmos Staking",
-  "tezos-staking": "Tezos",
-  "cardano-staking": "Cardano",
-  "near-staking": "NEAR",
-  "eth-validator": "Ethereum",
-  "algorand-staking": "Algorand",
-  "avalanche-staking": "Avalanche",
-  "solana-staking": "Solana",
-  "kadena-mining": "Kadena",
-  "aptos-staking": "Aptos",
-  "sui-staking": "Sui",
-  "glue-network": "Glue Network",
-};
-
-// ─── Address pattern detection ───
-const ADDRESS_PATTERNS: { match: (addr: string) => boolean; platformIds: string[] }[] = [
-  { match: (a) => a.startsWith("dydx1"), platformIds: ["dydx"] },
-  { match: (a) => a.startsWith("cosmos1"), platformIds: ["cosmos-hub-staking"] },
-  { match: (a) => a.startsWith("osmo1"), platformIds: ["osmosis-staking", "levana-osmosis"] },
-  { match: (a) => a.startsWith("neutron1"), platformIds: ["neutron-staking", "levana-neutron"] },
-  { match: (a) => a.startsWith("juno1"), platformIds: ["juno-staking", "levana-juno"] },
-  { match: (a) => a.startsWith("stride1"), platformIds: ["stride-staking"] },
-  { match: (a) => a.startsWith("akash1"), platformIds: ["akash-staking"] },
-  { match: (a) => a.startsWith("secret1"), platformIds: ["secret-staking"] },
-  { match: (a) => a.startsWith("inj1"), platformIds: ["levana-injective"] },
-  { match: (a) => /^tz[123]/.test(a), platformIds: ["tezos-staking"] },
-  { match: (a) => a.startsWith("stake1") && a.length >= 50, platformIds: ["cardano-staking"] },
-  { match: (a) => a.endsWith(".near") || a.endsWith(".testnet"), platformIds: ["near-staking"] },
-  { match: (a) => /^\d+$/.test(a) && a.length <= 10 && parseInt(a) >= 0 && parseInt(a) <= 2000000, platformIds: ["eth-validator"] },
-  { match: (a) => a.startsWith("P-avax1"), platformIds: ["avalanche-staking"] },
-  { match: (a) => a.startsWith("Stake"), platformIds: ["solana-staking"] },
-  { match: (a) => a.startsWith("k:"), platformIds: ["kadena-mining"] },
-  { match: (a) => /^1[a-zA-Z0-9]/.test(a) && a.length > 20, platformIds: ["polkadot-staking", "statemint-staking"] },
-  { match: (a) => /^C[a-zA-Z0-9]/.test(a) && a.length > 20, platformIds: ["kusama-staking", "statemine-staking"] },
-  { match: (a) => /^5[a-zA-Z0-9]/.test(a) && a.length > 20, platformIds: ["westend-staking", "rococo-staking", "bittensor-staking", "astar-staking", "shiden-staking"] },
-  { match: (a) => /^7[a-zA-Z0-9]/.test(a) && a.length > 20, platformIds: ["hydradx-staking"] },
-  { match: (a) => a.length >= 58 && /^[A-Z2-7]+$/.test(a), platformIds: ["algorand-staking"] },
-  // EVM addresses: 0x + 40 hex chars = 42 total length
-  { match: (a) => /^0x[0-9a-fA-F]{40}$/.test(a), platformIds: ["hyperliquid", "gmx", "aevo", "kwenta", "moonbeam-staking", "moonriver-staking", "glue-network"] },
-  // Aptos/Sui addresses: 0x + 64 hex chars = 66 total length
-  { match: (a) => /^0x[0-9a-fA-F]{64}$/.test(a), platformIds: ["aptos-staking", "sui-staking"] },
-];
-
-function detectPlatformsForAddress(address: string): typeof PLATFORMS {
-  const addr = address.trim();
-  if (!addr) return [];
-
-  const matchedIds = new Set<string>();
-  for (const pattern of ADDRESS_PATTERNS) {
-    if (pattern.match(addr)) {
-      pattern.platformIds.forEach((id) => matchedIds.add(id));
-    }
-  }
-
-  if (matchedIds.size === 0) return [];
-  return PLATFORMS.filter((p) => p.ready && matchedIds.has(p.id));
-}
+import CommandPalette from "@/components/CommandPalette";
+import ErrorAlert from "@/components/ErrorAlert";
+import WizardStepIndicator from "@/components/WizardStepIndicator";
+import LoadingStep from "@/components/LoadingStep";
+import {
+  PLATFORMS,
+  PLATFORM_MODES,
+  PLATFORM_DOCS,
+  REFUSAL_TOOLTIPS,
+  detectPlatformsForAddress,
+  modeLabel,
+  type Platform,
+} from "@/lib/data/platforms";
 
 // ─── Wizard steps ───
 type Step = "address" | "detect" | "credentials" | "loading" | "preview";
 
-const STEP_META = [
-  { key: "address", label: "Address", num: "01" },
-  { key: "detect", label: "Platform", num: "02" },
-  { key: "credentials", label: "Auth", num: "03" },
-  { key: "loading", label: "Fetch", num: "04" },
-  { key: "preview", label: "Export", num: "05" },
-] as const;
-
-const STEP_ORDER: Step[] = ["address", "detect", "credentials", "loading", "preview"];
-
 const ITEMS_PER_PAGE = 25;
-
-// ─── Refusal tooltip data ───
-const REFUSAL_TOOLTIPS: Record<string, string> = {
-  "Infer trades from token transfers": "Token transfers alone cannot distinguish trades from other movements. Including them would create false accounting events.",
-  "Reconstruct balances from state changes": "Balance deltas between blocks may include unrelated operations. Only explicit protocol events provide accurate attribution.",
-  "Estimate unrealized P&L": "Unrealized gains/losses depend on market prices and are not protocol-defined events. Including them would introduce audit risk.",
-  "Guess missing or ambiguous data": "When data is incomplete, guessing introduces errors that compound across an accounting period.",
-  "Net, aggregate, or summarize values": "Aggregated values lose the per-event granularity that auditors and tax authorities require.",
-  "Display charts, dashboards, or analytics": "Visual analytics imply interpretation. This tool exports raw, verifiable events only.",
-};
 
 export default function Home() {
   // ─── Core state ───
@@ -268,7 +40,7 @@ export default function Home() {
   const [viewMode, setViewMode] = useState<"list" | "table">("list");
 
   // ─── Wizard state ───
-  const [detectedPlatforms, setDetectedPlatforms] = useState<typeof PLATFORMS>([]);
+  const [detectedPlatforms, setDetectedPlatforms] = useState<Platform[]>([]);
   const [skipAuth, setSkipAuth] = useState(false);
 
   // ─── Preview state ───
@@ -281,12 +53,19 @@ export default function Home() {
   // ─── Dark mode state ───
   const [darkMode, setDarkMode] = useState(true);
 
+  // ─── Batch state ───
+  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
+  const [batchResults, setBatchResults] = useState<Record<string, {
+    events: AwakensEvent[];
+    validationErrors: ValidationError[];
+    error?: string;
+    mode?: string;
+  }>>({});
+  const [batchMode, setBatchMode] = useState(false);
+  const [batchProgress, setBatchProgress] = useState<Record<string, "pending" | "loading" | "done" | "error">>({});
+
   // ─── Command palette state ───
   const [platformSearchOpen, setPlatformSearchOpen] = useState(false);
-  const [platformQuery, setPlatformQuery] = useState("");
-  const [activeIndex, setActiveIndex] = useState(0);
-  const searchInputRef = useRef<HTMLInputElement>(null);
-  const paletteBodyRef = useRef<HTMLDivElement>(null);
   const addressInputRef = useRef<HTMLInputElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -303,46 +82,7 @@ export default function Home() {
   const platformMode = PLATFORM_MODES[platform] || "strict";
   const platformDoc = PLATFORM_DOCS[platform];
 
-  // ─── Command palette filtering ───
   const allReadyPlatforms = useMemo(() => PLATFORMS.filter((p) => p.ready), []);
-
-  const filteredForSearch = useMemo(() => {
-    const source = allReadyPlatforms;
-    if (!platformQuery.trim()) return source;
-    const q = platformQuery.toLowerCase();
-    return source.filter(
-      (p) =>
-        p.name.toLowerCase().includes(q) ||
-        p.family.toLowerCase().includes(q) ||
-        (p.hint && p.hint.toLowerCase().includes(q))
-    );
-  }, [allReadyPlatforms, platformQuery]);
-
-  const groupedResults = useMemo(() => {
-    const ready = filteredForSearch.filter((p) => p.ready);
-    const notReady = platformQuery.trim()
-      ? PLATFORMS.filter((p) => !p.ready).filter(
-          (p) =>
-            p.name.toLowerCase().includes(platformQuery.toLowerCase()) ||
-            p.family.toLowerCase().includes(platformQuery.toLowerCase())
-        )
-      : PLATFORMS.filter((p) => !p.ready);
-
-    const familyGroups: Record<string, typeof PLATFORMS> = {};
-    ready.forEach((p) => {
-      if (!familyGroups[p.family]) familyGroups[p.family] = [];
-      familyGroups[p.family].push(p);
-    });
-
-    return { familyGroups, notReady };
-  }, [filteredForSearch, platformQuery]);
-
-  const flatResults = useMemo(() => {
-    const items: typeof PLATFORMS = [];
-    Object.values(groupedResults.familyGroups).forEach((group) => items.push(...group));
-    items.push(...groupedResults.notReady);
-    return items;
-  }, [groupedResults]);
 
   // ─── Filtered + paginated events for preview ───
   // Compute available years from events for dropdown
@@ -444,31 +184,6 @@ export default function Home() {
     }
   }, [step]);
 
-  // ─── Command palette effects ───
-  useEffect(() => {
-    if (platformSearchOpen) {
-      setTimeout(() => searchInputRef.current?.focus(), 20);
-      document.body.style.overflow = "hidden";
-    } else {
-      setPlatformQuery("");
-      setActiveIndex(0);
-      document.body.style.overflow = "";
-    }
-    return () => { document.body.style.overflow = ""; };
-  }, [platformSearchOpen]);
-
-  useEffect(() => {
-    setActiveIndex(0);
-  }, [platformQuery]);
-
-  useEffect(() => {
-    if (!platformSearchOpen || !paletteBodyRef.current) return;
-    const activeEl = paletteBodyRef.current.querySelector('[data-active="true"]');
-    if (activeEl) {
-      activeEl.scrollIntoView({ block: "nearest" });
-    }
-  }, [activeIndex, platformSearchOpen]);
-
   // Global Ctrl+K to open palette (available on address and detect steps)
   useEffect(() => {
     function handleGlobalKey(e: KeyboardEvent) {
@@ -517,26 +232,6 @@ export default function Home() {
     }
     clearError();
   }
-
-  const handlePaletteKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        setActiveIndex((prev) => Math.min(prev + 1, flatResults.length - 1));
-      } else if (e.key === "ArrowUp") {
-        e.preventDefault();
-        setActiveIndex((prev) => Math.max(prev - 1, 0));
-      } else if (e.key === "Enter") {
-        e.preventDefault();
-        const item = flatResults[activeIndex];
-        if (item && item.ready) selectPlatform(item.id);
-      } else if (e.key === "Escape") {
-        setPlatformSearchOpen(false);
-      }
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [flatResults, activeIndex]
-  );
 
   function cancelFetch() {
     abortControllerRef.current?.abort();
@@ -619,6 +314,122 @@ export default function Home() {
     await fetchEventsForPlatform(platform);
   }
 
+  // ─── Batch fetch ───
+  async function fetchBatchEvents(platformIds: string[]) {
+    if (!account.trim() || platformIds.length === 0) return;
+
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    setStep("loading");
+    setBatchMode(true);
+    clearError();
+    setTruncated(false);
+
+    const progress: Record<string, "pending" | "loading" | "done" | "error"> = {};
+    platformIds.forEach((id) => { progress[id] = "loading"; });
+    setBatchProgress({ ...progress });
+
+    const results = await Promise.allSettled(
+      platformIds.map(async (id) => {
+        const body: Record<string, string> = { platform: id, account: account.trim() };
+        const res = await fetch("/api/events", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          progress[id] = "error";
+          setBatchProgress({ ...progress });
+          return { id, error: data.error || `HTTP ${res.status}`, events: [] as AwakensEvent[], validationErrors: [] as ValidationError[] };
+        }
+
+        progress[id] = "done";
+        setBatchProgress({ ...progress });
+        return { id, events: data.events as AwakensEvent[], validationErrors: (data.validationErrors || []) as ValidationError[], mode: PLATFORM_MODES[id] || "strict" };
+      })
+    );
+
+    if (controller.signal.aborted) return;
+
+    const batchRes: typeof batchResults = {};
+    let allEvents: AwakensEvent[] = [];
+    let allErrors: ValidationError[] = [];
+    let failedCount = 0;
+
+    results.forEach((result, i) => {
+      const id = platformIds[i];
+      if (result.status === "fulfilled") {
+        const data = result.value;
+        batchRes[data.id] = {
+          events: data.events,
+          validationErrors: data.validationErrors,
+          error: data.error,
+          mode: data.mode,
+        };
+        if (!data.error) {
+          allEvents = allEvents.concat(data.events);
+          // Offset validation error rows for merged view
+          const offset = allEvents.length - data.events.length;
+          allErrors = allErrors.concat(data.validationErrors.map((e) => ({ ...e, row: e.row + offset })));
+        } else {
+          failedCount++;
+        }
+      } else {
+        batchRes[id] = { events: [], validationErrors: [], error: "Request failed" };
+        failedCount++;
+      }
+    });
+
+    // Deduplicate by txHash (keep first occurrence)
+    const seen = new Set<string>();
+    const deduped: AwakensEvent[] = [];
+    allEvents.forEach((e) => {
+      if (!seen.has(e.txHash)) {
+        seen.add(e.txHash);
+        deduped.push(e);
+      }
+    });
+
+    setBatchResults(batchRes);
+    setEvents(deduped);
+    setValidationErrors(allErrors);
+    setEventCount(deduped.length);
+    setSearchQuery("");
+    setCurrentPage(1);
+
+    if (deduped.length > 0) {
+      setStep("preview");
+    } else {
+      setError(`All ${failedCount} platform${failedCount !== 1 ? "s" : ""} failed to return events.`);
+      setStep("detect");
+      setBatchMode(false);
+    }
+
+    if (abortControllerRef.current === controller) {
+      abortControllerRef.current = null;
+    }
+  }
+
+  function togglePlatformSelection(id: string) {
+    setSelectedPlatforms((prev) =>
+      prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]
+    );
+  }
+
+  function selectAllDetected() {
+    const nonAuth = detectedPlatforms.filter((p) => !p.requiresAuth).map((p) => p.id);
+    setSelectedPlatforms(nonAuth);
+  }
+
+  function deselectAll() {
+    setSelectedPlatforms([]);
+  }
+
   // Export uses filtered events (respects year filter) but ignores search query
   const exportEvents = useMemo(() => {
     if (filterYear === "all") return events;
@@ -636,7 +447,8 @@ export default function Home() {
       const a = document.createElement("a");
       a.href = url;
       const yearSuffix = filterYear !== "all" ? `-${filterYear}` : "";
-      a.download = `${platform}-awakens${yearSuffix}-${Date.now()}.csv`;
+      const prefix = batchMode ? "batch" : platform;
+      a.download = `${prefix}-awakens${yearSuffix}-${Date.now()}.csv`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (err: unknown) {
@@ -652,7 +464,8 @@ export default function Home() {
     const a = document.createElement("a");
     a.href = url;
     const yearSuffix = filterYear !== "all" ? `-${filterYear}` : "";
-    a.download = `${platform}-awakens${yearSuffix}-${Date.now()}.json`;
+    const prefix = batchMode ? "batch" : platform;
+    a.download = `${prefix}-awakens${yearSuffix}-${Date.now()}.json`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -677,15 +490,13 @@ export default function Home() {
     setViewMode("list");
     setSortKey("date");
     setSortDir("asc");
+    setSelectedPlatforms([]);
+    setBatchResults({});
+    setBatchMode(false);
+    setBatchProgress({});
   }
 
   // ─── Helpers ───
-
-  function modeLabel(mode: string) {
-    if (mode === "assisted") return { label: "Assisted", color: "text-amber-400", bg: "bg-amber-500/10", border: "border-amber-500/20" };
-    if (mode === "partial") return { label: "Partial", color: "text-sky-400", bg: "bg-sky-500/10", border: "border-sky-500/20" };
-    return { label: "Strict", color: "text-[var(--accent)]", bg: "bg-[var(--accent-dim)]", border: "border-[var(--accent-border)]" };
-  }
 
   function formatTag(tag: string): string {
     return tag.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -697,8 +508,6 @@ export default function Home() {
     const s = pnl.toFixed(8).replace(/\.?0+$/, "");
     return `${prefix}${s} ${paymentToken}`;
   }
-
-  const stepIndex = STEP_ORDER.indexOf(step);
 
   return (
     <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-16">
@@ -735,84 +544,11 @@ export default function Home() {
 
       {/* ─── Step indicator ─── */}
       {step !== "address" && (
-        <div className="step-indicator-wrap flex items-center gap-1 mb-8 sm:mb-10 animate-fade-in">
-          {STEP_META.map((s, i) => {
-            const isActive = step === s.key;
-            const isPast = stepIndex > i;
-            const isSkipped = s.key === "credentials" && skipAuth && !isActive;
-            return (
-              <div key={s.key} className="flex items-center gap-1">
-                {i > 0 && <div className={`w-4 sm:w-8 h-px mx-0.5 sm:mx-1 ${isPast || isActive ? "bg-[var(--accent)]" : isSkipped ? "bg-[var(--border-medium)] opacity-40" : "bg-[var(--border-subtle)]"}`} />}
-                <div className={`flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2.5 py-1 rounded-md text-[10px] sm:text-xs font-mono transition-all whitespace-nowrap ${
-                  isActive
-                    ? "bg-[var(--accent-dim)] text-[var(--accent)] border border-[var(--accent-border)]"
-                    : isPast
-                    ? "text-[var(--accent)]"
-                    : isSkipped
-                    ? "text-[var(--text-tertiary)] opacity-40 line-through"
-                    : "text-[var(--text-tertiary)]"
-                }`}>
-                  <span className="opacity-50">{s.num}</span>
-                  <span className="font-medium hidden sm:inline">{s.label}</span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        <WizardStepIndicator currentStep={step} skipAuth={skipAuth} />
       )}
 
       {/* ─── Error display ─── */}
-      {error && (
-        <div className={`mb-8 p-4 rounded-lg text-sm font-mono whitespace-pre-wrap animate-fade-in ${
-          classifiedError?.blockedByDesign
-            ? "bg-zinc-500/10 border border-zinc-500/20 text-zinc-400"
-            : classifiedError?.type === "rate-limit"
-            ? "bg-amber-500/10 border border-amber-500/20 text-amber-400"
-            : "bg-red-500/10 border border-red-500/20 text-red-400"
-        }`}>
-          <div className="flex items-start gap-3">
-            <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 ${
-              classifiedError?.blockedByDesign ? "bg-zinc-500/20" : classifiedError?.type === "rate-limit" ? "bg-amber-500/20" : "bg-red-500/20"
-            }`}>
-              {classifiedError?.blockedByDesign ? (
-                <svg className="w-3 h-3 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
-                </svg>
-              ) : (
-                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                </svg>
-              )}
-            </div>
-            <div className="flex-1 space-y-2">
-              {classifiedError && (
-                <div className="text-[10px] font-semibold uppercase tracking-wider opacity-70">
-                  {classifiedError.blockedByDesign ? "Blocked by design" : classifiedError.type.replace("-", " ")}
-                </div>
-              )}
-              <div>{error}</div>
-              {classifiedError?.userAction && !classifiedError.blockedByDesign && (
-                <div className="pt-2 border-t border-current/10 flex items-center gap-3">
-                  <span className="text-[11px] opacity-80">{classifiedError.userAction}</span>
-                  {(classifiedError.type === "network" || classifiedError.type === "rate-limit" || classifiedError.type === "internal") && (
-                    <button
-                      onClick={fetchEvents}
-                      className="px-3 py-1 text-[11px] font-semibold rounded-md border border-current/20 hover:bg-current/10 transition-colors duration-200"
-                    >
-                      Retry
-                    </button>
-                  )}
-                </div>
-              )}
-              {classifiedError?.blockedByDesign && (
-                <div className="pt-2 border-t border-current/10 text-[11px] opacity-80">
-                  This is a protocol limitation, not a bug. No workaround is available.
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      <ErrorAlert error={error} classifiedError={classifiedError} onRetry={fetchEvents} />
 
       {/* ═══════════════════════════════════════════════════
           STEP 1: Address Input
@@ -864,18 +600,29 @@ export default function Home() {
                 <span className="relative z-10">Continue</span>
               </button>
             </div>
-            <button
-              onClick={() => setPlatformSearchOpen(true)}
-              className="mt-4 flex items-center gap-1.5 text-[12px] font-mono text-[var(--text-tertiary)] hover:text-[var(--accent)] transition-colors duration-200"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-              </svg>
-              Or browse all platforms
-              <span className="hidden sm:inline ml-1 opacity-60">
-                <kbd className="palette-kbd text-[9px] px-1">Ctrl+K</kbd>
-              </span>
-            </button>
+            <div className="mt-4 flex items-center gap-4">
+              <button
+                onClick={() => setPlatformSearchOpen(true)}
+                className="flex items-center gap-1.5 text-[12px] font-mono text-[var(--text-tertiary)] hover:text-[var(--accent)] transition-colors duration-200"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                </svg>
+                Or browse all platforms
+                <span className="hidden sm:inline ml-1 opacity-60">
+                  <kbd className="palette-kbd text-[9px] px-1">Ctrl+K</kbd>
+                </span>
+              </button>
+              <Link
+                href="/platforms"
+                className="flex items-center gap-1.5 text-[12px] font-mono text-[var(--text-tertiary)] hover:text-[var(--accent)] transition-colors duration-200"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
+                </svg>
+                View all {PLATFORMS.length} platforms
+              </Link>
+            </div>
           </div>
 
           {/* Explicit Refusals with tooltips */}
@@ -944,34 +691,82 @@ export default function Home() {
                   {detectedPlatforms.length} compatible platform{detectedPlatforms.length !== 1 ? "s" : ""} detected
                 </span>
               </div>
-              <p className="text-[12px] text-[var(--text-tertiary)] mb-5 leading-relaxed">
-                Select the platform where your activity occurred. The address <span className="font-mono text-[var(--text-secondary)]">{account.slice(0, 12)}...{account.slice(-6)}</span> matches these platforms.
+              <p className="text-[12px] text-[var(--text-tertiary)] mb-3 leading-relaxed">
+                {detectedPlatforms.length >= 2
+                  ? <>Click a platform for single export, or check multiple for batch export. Address <span className="font-mono text-[var(--text-secondary)]">{account.slice(0, 12)}...{account.slice(-6)}</span></>
+                  : <>Select the platform where your activity occurred. The address <span className="font-mono text-[var(--text-secondary)]">{account.slice(0, 12)}...{account.slice(-6)}</span> matches these platforms.</>
+                }
               </p>
+
+              {/* Batch controls */}
+              {detectedPlatforms.length >= 2 && (
+                <div className="flex items-center gap-3 mb-4">
+                  <button
+                    onClick={selectedPlatforms.length === detectedPlatforms.filter((p) => !p.requiresAuth).length ? deselectAll : selectAllDetected}
+                    className="text-[11px] font-mono text-[var(--accent)] hover:underline"
+                  >
+                    {selectedPlatforms.length === detectedPlatforms.filter((p) => !p.requiresAuth).length ? "Deselect All" : "Select All"}
+                  </button>
+                  {selectedPlatforms.length >= 2 && (
+                    <button
+                      onClick={() => fetchBatchEvents(selectedPlatforms)}
+                      className="btn-primary relative px-4 py-2 bg-[var(--accent)] text-white rounded-lg font-semibold text-[12px] hover:brightness-110 transition-all duration-200"
+                    >
+                      <span className="relative z-10">Fetch {selectedPlatforms.length} platforms</span>
+                    </button>
+                  )}
+                  {selectedPlatforms.length > 0 && selectedPlatforms.length < 2 && (
+                    <span className="text-[10px] text-[var(--text-tertiary)]">Select 2+ for batch</span>
+                  )}
+                </div>
+              )}
+
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 stagger">
                 {detectedPlatforms.map((p) => {
                   const mode = modeLabel(PLATFORM_MODES[p.id] || "strict");
+                  const isSelected = selectedPlatforms.includes(p.id);
+                  const showCheckbox = detectedPlatforms.length >= 2;
                   return (
-                    <button
+                    <div
                       key={p.id}
-                      onClick={() => selectPlatform(p.id)}
-                      className="platform-card p-4 rounded-lg border border-[var(--border-subtle)] hover:border-[var(--accent-border)] bg-[var(--surface-1)] text-left transition-all duration-200 group"
+                      className={`platform-card p-4 rounded-lg border bg-[var(--surface-1)] text-left transition-all duration-200 group ${
+                        isSelected ? "border-[var(--accent-border)] ring-1 ring-[var(--accent-border)]" : "border-[var(--border-subtle)] hover:border-[var(--accent-border)]"
+                      }`}
                     >
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-[13px] font-semibold text-[var(--text-primary)] group-hover:text-[var(--accent)] transition-colors">{p.name}</span>
-                        <span className={`text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded ${mode.bg} ${mode.color} border ${mode.border} uppercase tracking-wider`}>
-                          {mode.label}
-                        </span>
+                      <div className="flex items-start gap-3">
+                        {showCheckbox && (
+                          <label className="flex-shrink-0 mt-0.5">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              disabled={p.requiresAuth}
+                              onChange={() => togglePlatformSelection(p.id)}
+                              className="w-3.5 h-3.5 rounded border-[var(--border-strong)] bg-[var(--surface-2)] text-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)] focus:ring-offset-0 disabled:opacity-30"
+                            />
+                          </label>
+                        )}
+                        <button
+                          onClick={() => selectPlatform(p.id)}
+                          className="flex-1 text-left"
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-[13px] font-semibold text-[var(--text-primary)] group-hover:text-[var(--accent)] transition-colors">{p.name}</span>
+                            <span className={`text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded ${mode.bg} ${mode.color} border ${mode.border} uppercase tracking-wider`}>
+                              {mode.label}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-[var(--text-tertiary)] leading-relaxed">{p.hint}</div>
+                          {p.requiresAuth && (
+                            <div className="flex items-center gap-1.5 mt-2 text-[10px] text-amber-400/80">
+                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" />
+                              </svg>
+                              {showCheckbox ? "Requires credentials — skipped in batch" : "Requires API key"}
+                            </div>
+                          )}
+                        </button>
                       </div>
-                      <div className="text-[11px] text-[var(--text-tertiary)] leading-relaxed">{p.hint}</div>
-                      {p.requiresAuth && (
-                        <div className="flex items-center gap-1.5 mt-2 text-[10px] text-amber-400/80">
-                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" />
-                          </svg>
-                          Requires API key
-                        </div>
-                      )}
-                    </button>
+                    </div>
                   );
                 })}
               </div>
@@ -1003,12 +798,20 @@ export default function Home() {
             </span>
           </button>
 
-          <button onClick={() => { setStep("address"); clearError(); }} className="flex items-center gap-1.5 text-[12px] font-mono text-[var(--text-tertiary)] hover:text-[var(--accent)] transition-colors duration-200">
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
-            </svg>
-            Change address
-          </button>
+          <div className="flex items-center gap-4">
+            <button onClick={() => { setStep("address"); clearError(); }} className="flex items-center gap-1.5 text-[12px] font-mono text-[var(--text-tertiary)] hover:text-[var(--accent)] transition-colors duration-200">
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+              </svg>
+              Change address
+            </button>
+            <Link
+              href="/platforms"
+              className="flex items-center gap-1.5 text-[12px] font-mono text-[var(--text-tertiary)] hover:text-[var(--accent)] transition-colors duration-200"
+            >
+              View all {PLATFORMS.length} platforms
+            </Link>
+          </div>
         </div>
       )}
 
@@ -1128,32 +931,7 @@ export default function Home() {
           STEP 4: Loading
          ═══════════════════════════════════════════════════ */}
       {step === "loading" && (
-        <div className="animate-fade-in py-20 flex flex-col items-center justify-center gap-6">
-          <div className="relative w-14 h-14">
-            <div className="absolute inset-0 rounded-full border border-[var(--border-subtle)]" />
-            <div className="absolute inset-1 rounded-full border border-[var(--border-subtle)] opacity-60" />
-            <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-[var(--accent)]" style={{ animation: "spin 0.9s cubic-bezier(0.4, 0, 0.2, 1) infinite" }} />
-            <div className="absolute inset-[6px] rounded-full border-2 border-transparent border-b-[var(--accent)]" style={{ animation: "spin 1.4s cubic-bezier(0.4, 0, 0.2, 1) infinite reverse" }} />
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="w-2 h-2 rounded-full bg-[var(--accent)]" style={{ animation: "breathe 2s ease-in-out infinite" }} />
-            </div>
-          </div>
-          <div className="text-center">
-            <div className="text-sm font-medium text-[var(--text-primary)] mb-1.5">Fetching accounting events</div>
-            <div className="text-[12px] font-mono text-[var(--text-tertiary)]">{platformName}</div>
-            <div className="mt-4 flex items-center justify-center gap-1.5">
-              {[0, 1, 2].map((i) => (
-                <div key={i} className="w-1 h-1 rounded-full bg-[var(--accent)]" style={{ animation: "breathe 1.2s ease-in-out infinite", animationDelay: `${i * 200}ms` }} />
-              ))}
-            </div>
-            <button
-              onClick={cancelFetch}
-              className="mt-4 px-4 py-2 text-[12px] font-medium border border-[var(--border-subtle)] rounded-md text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-2)] transition-all duration-200"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
+        <LoadingStep platformName={platformName} onCancel={cancelFetch} batchProgress={batchMode ? batchProgress : undefined} />
       )}
 
       {/* ═══════════════════════════════════════════════════
@@ -1169,7 +947,13 @@ export default function Home() {
                 <span className="text-[var(--text-tertiary)] text-xs ml-1.5">event{eventCount !== 1 ? "s" : ""}</span>
               </div>
               <div className="w-px h-4 bg-[var(--border-subtle)]" />
-              <span className="text-[var(--text-secondary)] font-medium text-[13px]">{platformName}</span>
+              <span className="text-[var(--text-secondary)] font-medium text-[13px]">
+                {batchMode ? (() => {
+                  const successful = Object.entries(batchResults).filter(([, r]) => !r.error);
+                  const failed = Object.entries(batchResults).filter(([, r]) => r.error);
+                  return `${successful.length} platform${successful.length !== 1 ? "s" : ""}${failed.length > 0 ? ` (${failed.length} failed)` : ""}`;
+                })() : platformName}
+              </span>
               {validationErrors.length > 0 && (
                 <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-red-500/10 border border-red-500/20 text-red-400 text-[11px] font-mono font-medium">
                   {validationErrors.length} error{validationErrors.length > 1 ? "s" : ""}
@@ -1270,6 +1054,47 @@ export default function Home() {
                 <div className="text-[12px] text-sky-300 leading-relaxed">
                   <span className="font-semibold">Partial Support</span> — Only protocol-defined events are included. Events requiring inference are blocked by design.
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* Batch results summary */}
+          {batchMode && Object.keys(batchResults).length > 0 && (
+            <div className="p-4 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] animate-fade-in">
+              <div className="text-[10px] font-mono font-medium tracking-widest uppercase text-[var(--text-tertiary)] mb-3">Batch Results</div>
+              <div className="space-y-1.5">
+                {Object.entries(batchResults).map(([id, result]) => {
+                  const plat = PLATFORMS.find((p) => p.id === id);
+                  return (
+                    <div key={id} className="flex items-center gap-2 text-[12px]">
+                      {result.error ? (
+                        <svg className="w-3 h-3 text-red-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                        </svg>
+                      ) : (
+                        <svg className="w-3 h-3 text-emerald-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                        </svg>
+                      )}
+                      <span className={result.error ? "text-red-400" : "text-[var(--text-secondary)]"}>
+                        {plat?.name || id}
+                      </span>
+                      {result.error ? (
+                        <span className="text-red-400/60 text-[10px] ml-1">{result.error}</span>
+                      ) : (
+                        <span className="text-[var(--text-tertiary)] text-[10px] ml-1">{result.events.length} events</span>
+                      )}
+                      {result.error && (
+                        <button
+                          onClick={() => { setPlatform(id); fetchEventsForPlatform(id); setBatchMode(false); }}
+                          className="ml-auto text-[10px] font-mono text-[var(--accent)] hover:underline"
+                        >
+                          Retry
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -1579,106 +1404,12 @@ export default function Home() {
         </div>
       )}
 
-      {/* ═══════════════════════════════════════════════════
-          Command Palette (available on address + detect steps)
-         ═══════════════════════════════════════════════════ */}
-      {platformSearchOpen && (
-        <>
-          <div className="palette-backdrop" onClick={() => setPlatformSearchOpen(false)} />
-          <div className="command-palette" role="dialog" aria-modal="true" aria-label="Search platforms">
-            <div className="command-palette-header">
-              <div className="flex items-center gap-3">
-                <svg className="w-5 h-5 text-[var(--accent)] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-                </svg>
-                <input
-                  ref={searchInputRef}
-                  type="text"
-                  value={platformQuery}
-                  onChange={(e) => setPlatformQuery(e.target.value)}
-                  onKeyDown={handlePaletteKeyDown}
-                  placeholder="Search platforms..."
-                  spellCheck={false}
-                  autoComplete="off"
-                />
-                <button
-                  onClick={() => setPlatformSearchOpen(false)}
-                  className="flex-shrink-0 palette-kbd text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors cursor-pointer"
-                >
-                  esc
-                </button>
-              </div>
-            </div>
-
-            <div className="command-palette-body" ref={paletteBodyRef}>
-              {Object.entries(groupedResults.familyGroups).map(([family, platforms]) => (
-                <div key={family}>
-                  <div className="command-palette-group">
-                    {FAMILY_LABELS[family] || family}
-                  </div>
-                  {platforms.map((p) => {
-                    const idx = flatResults.indexOf(p);
-                    const mode = modeLabel(PLATFORM_MODES[p.id] || "strict");
-                    return (
-                      <button
-                        key={p.id}
-                        data-active={idx === activeIndex}
-                        onClick={() => selectPlatform(p.id)}
-                        onMouseEnter={() => setActiveIndex(idx)}
-                        className="command-palette-item w-full text-left"
-                      >
-                        <div className="flex-1 min-w-0">
-                          <div className="palette-item-name">{p.name}</div>
-                          <div className="palette-item-hint truncate">{p.hint}</div>
-                        </div>
-                        <span className={`text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded ${mode.bg} ${mode.color} border ${mode.border} uppercase tracking-wider flex-shrink-0`}>
-                          {mode.label}
-                        </span>
-                        {p.requiresAuth && (
-                          <svg className="w-3.5 h-3.5 text-amber-400/60 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" />
-                          </svg>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              ))}
-
-              {groupedResults.notReady.length > 0 && (
-                <div>
-                  <div className="command-palette-group">Coming Soon</div>
-                  {groupedResults.notReady.map((p) => (
-                    <div
-                      key={p.id}
-                      className="command-palette-item opacity-30 cursor-not-allowed"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <div className="palette-item-name">{p.name}</div>
-                        <div className="palette-item-hint truncate">{p.hint}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {flatResults.length === 0 && (
-                <div className="px-5 py-12 text-center">
-                  <div className="text-sm text-[var(--text-tertiary)] mb-1">No platforms found</div>
-                  <div className="text-xs text-[var(--text-tertiary)] opacity-60">Try a different search term</div>
-                </div>
-              )}
-            </div>
-
-            <div className="command-palette-footer">
-              <span className="flex items-center gap-1.5"><kbd className="palette-kbd">↑↓</kbd> navigate</span>
-              <span className="flex items-center gap-1.5"><kbd className="palette-kbd">↵</kbd> select</span>
-              <span className="flex items-center gap-1.5"><kbd className="palette-kbd">esc</kbd> close</span>
-              <span className="ml-auto">{filteredForSearch.filter(p => p.ready).length} available</span>
-            </div>
-          </div>
-        </>
-      )}
+      {/* ─── Command Palette ─── */}
+      <CommandPalette
+        open={platformSearchOpen}
+        onClose={() => setPlatformSearchOpen(false)}
+        onSelect={selectPlatform}
+      />
 
       {/* ─── Footer ─── */}
       <footer className="mt-20 pt-6 pb-2 border-t border-[var(--border-subtle)]">
