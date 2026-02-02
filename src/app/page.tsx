@@ -5,14 +5,12 @@ import { AwakensEvent, ValidationError, ClassifiedError } from "@/lib/core/types
 import { generateCSV } from "@/lib/core/csv";
 import EventTable from "@/components/EventTable";
 
-// Mode mapping for platforms (client-side only, no backend changes)
+// ─── Mode mapping (client-side only, no backend changes) ───
 const PLATFORM_MODES: Record<string, "strict" | "assisted" | "partial" | "blocked"> = {
-  // Assisted mode platforms
   "levana-osmosis": "assisted",
   "levana-injective": "assisted",
   "levana-neutron": "assisted",
   "levana-juno": "assisted",
-  // Partial mode platforms (limited but safe)
   "cardano-staking": "partial",
   "eth-validator": "partial",
   "solana-staking": "partial",
@@ -20,10 +18,9 @@ const PLATFORM_MODES: Record<string, "strict" | "assisted" | "partial" | "blocke
   "aptos-staking": "partial",
   "sui-staking": "partial",
   "glue-network": "partial",
-  // Strict mode (default for all others — includes algorand, avalanche)
 };
 
-// Usecase definitions
+// ─── Usecase definitions ───
 type Usecase = "perps" | "staking" | "advanced";
 
 const USECASES: { id: Usecase; label: string; description: string; families: string[] }[] = [
@@ -131,7 +128,7 @@ const PLATFORMS = [
   { id: "perennial", name: "Perennial", ready: false, placeholder: "", hint: "No public subgraph endpoint", requiresAuth: false, family: "evm-perps" },
 ];
 
-// Platform-level documentation for new chains
+// ─── Platform-level documentation ───
 const PLATFORM_DOCS: Record<string, { supported: string[]; blocked: string[]; why: string }> = {
   "tezos-staking": {
     supported: ["Baking rewards", "Delegation rewards", "Slashing (double-baking/endorsing)"],
@@ -190,7 +187,7 @@ const PLATFORM_DOCS: Record<string, { supported: string[]; blocked: string[]; wh
   },
 };
 
-// Family labels for grouping in command palette
+// ─── Family labels for grouping ───
 const FAMILY_LABELS: Record<string, string> = {
   "evm-perps": "EVM Perps",
   "cosmwasm-perps": "CosmWasm Perps",
@@ -209,11 +206,75 @@ const FAMILY_LABELS: Record<string, string> = {
   "glue-network": "Glue Network",
 };
 
-type Step = "select" | "input" | "loading" | "preview";
+// ─── Address pattern detection ───
+const ADDRESS_PATTERNS: { match: (addr: string) => boolean; platformIds: string[] }[] = [
+  { match: (a) => a.startsWith("dydx1"), platformIds: ["dydx"] },
+  { match: (a) => a.startsWith("cosmos1"), platformIds: ["cosmos-hub-staking"] },
+  { match: (a) => a.startsWith("osmo1"), platformIds: ["osmosis-staking", "levana-osmosis"] },
+  { match: (a) => a.startsWith("neutron1"), platformIds: ["neutron-staking", "levana-neutron"] },
+  { match: (a) => a.startsWith("juno1"), platformIds: ["juno-staking", "levana-juno"] },
+  { match: (a) => a.startsWith("stride1"), platformIds: ["stride-staking"] },
+  { match: (a) => a.startsWith("akash1"), platformIds: ["akash-staking"] },
+  { match: (a) => a.startsWith("secret1"), platformIds: ["secret-staking"] },
+  { match: (a) => a.startsWith("inj1"), platformIds: ["levana-injective"] },
+  { match: (a) => /^tz[123]/.test(a), platformIds: ["tezos-staking"] },
+  { match: (a) => a.startsWith("stake1"), platformIds: ["cardano-staking"] },
+  { match: (a) => a.includes(".near") || a.includes(".testnet"), platformIds: ["near-staking"] },
+  { match: (a) => /^\d+$/.test(a) && a.length <= 10, platformIds: ["eth-validator"] },
+  { match: (a) => a.startsWith("P-avax1"), platformIds: ["avalanche-staking"] },
+  { match: (a) => a.startsWith("Stake"), platformIds: ["solana-staking"] },
+  { match: (a) => a.startsWith("k:"), platformIds: ["kadena-mining"] },
+  { match: (a) => /^1[a-zA-Z0-9]/.test(a) && a.length > 20, platformIds: ["polkadot-staking", "statemint-staking"] },
+  { match: (a) => /^C[a-zA-Z0-9]/.test(a) && a.length > 20, platformIds: ["kusama-staking", "statemine-staking"] },
+  { match: (a) => /^5[a-zA-Z0-9]/.test(a) && a.length > 20, platformIds: ["westend-staking", "rococo-staking", "bittensor-staking", "astar-staking", "shiden-staking"] },
+  { match: (a) => /^7[a-zA-Z0-9]/.test(a) && a.length > 20, platformIds: ["hydradx-staking"] },
+  { match: (a) => a.length >= 58 && /^[A-Z2-7]+$/.test(a), platformIds: ["algorand-staking"] },
+  { match: (a) => a.startsWith("0x"), platformIds: ["hyperliquid", "gmx", "aevo", "kwenta", "moonbeam-staking", "moonriver-staking", "aptos-staking", "sui-staking", "glue-network"] },
+];
+
+function detectPlatformsForAddress(address: string): typeof PLATFORMS {
+  const addr = address.trim();
+  if (!addr) return [];
+
+  const matchedIds = new Set<string>();
+  for (const pattern of ADDRESS_PATTERNS) {
+    if (pattern.match(addr)) {
+      pattern.platformIds.forEach((id) => matchedIds.add(id));
+    }
+  }
+
+  if (matchedIds.size === 0) return [];
+  return PLATFORMS.filter((p) => p.ready && matchedIds.has(p.id));
+}
+
+// ─── Wizard steps ───
+type Step = "address" | "detect" | "credentials" | "loading" | "preview";
+
+const STEP_META = [
+  { key: "address", label: "Address", num: "01" },
+  { key: "detect", label: "Platform", num: "02" },
+  { key: "credentials", label: "Auth", num: "03" },
+  { key: "loading", label: "Fetch", num: "04" },
+  { key: "preview", label: "Export", num: "05" },
+] as const;
+
+const STEP_ORDER: Step[] = ["address", "detect", "credentials", "loading", "preview"];
+
+const ITEMS_PER_PAGE = 25;
+
+// ─── Refusal tooltip data ───
+const REFUSAL_TOOLTIPS: Record<string, string> = {
+  "Infer trades from token transfers": "Token transfers alone cannot distinguish trades from other movements. Including them would create false accounting events.",
+  "Reconstruct balances from state changes": "Balance deltas between blocks may include unrelated operations. Only explicit protocol events provide accurate attribution.",
+  "Estimate unrealized P&L": "Unrealized gains/losses depend on market prices and are not protocol-defined events. Including them would introduce audit risk.",
+  "Guess missing or ambiguous data": "When data is incomplete, guessing introduces errors that compound across an accounting period.",
+  "Net, aggregate, or summarize values": "Aggregated values lose the per-event granularity that auditors and tax authorities require.",
+  "Display charts, dashboards, or analytics": "Visual analytics imply interpretation. This tool exports raw, verifiable events only.",
+};
 
 export default function Home() {
-  const [step, setStep] = useState<Step>("select");
-  const [usecase, setUsecase] = useState<Usecase | null>(null);
+  // ─── Core state ───
+  const [step, setStep] = useState<Step>("address");
   const [platform, setPlatform] = useState<string>("");
   const [account, setAccount] = useState<string>("");
   const [apiKey, setApiKey] = useState<string>("");
@@ -226,34 +287,56 @@ export default function Home() {
   const [eventCount, setEventCount] = useState(0);
   const [viewMode, setViewMode] = useState<"list" | "table">("list");
 
-  // Command palette state
+  // ─── Wizard state ───
+  const [detectedPlatforms, setDetectedPlatforms] = useState<typeof PLATFORMS>([]);
+  const [skipAuth, setSkipAuth] = useState(false);
+
+  // ─── Preview state ───
+  const [searchQuery, setSearchQuery] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // ─── Dark mode state ───
+  const [darkMode, setDarkMode] = useState(true);
+
+  // ─── Command palette state ───
   const [platformSearchOpen, setPlatformSearchOpen] = useState(false);
   const [platformQuery, setPlatformQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const paletteBodyRef = useRef<HTMLDivElement>(null);
+  const addressInputRef = useRef<HTMLInputElement>(null);
 
-  const selectedUsecase = USECASES.find((u) => u.id === usecase);
-  const filteredPlatforms = usecase
-    ? PLATFORMS.filter((p) => selectedUsecase?.families.includes(p.family))
-    : PLATFORMS;
+  // ─── Derive platform info ───
+  const currentPlatform = PLATFORMS.find((p) => p.id === platform);
+  const platformName = currentPlatform?.name || platform;
+  const needsAuth = currentPlatform?.requiresAuth || false;
+  const platformMode = PLATFORM_MODES[platform] || "strict";
+  const platformDoc = PLATFORM_DOCS[platform];
 
-  // Command palette: filter by query
+  // ─── Command palette filtering ───
+  const allReadyPlatforms = useMemo(() => PLATFORMS.filter((p) => p.ready), []);
+
   const filteredForSearch = useMemo(() => {
-    if (!platformQuery.trim()) return filteredPlatforms;
+    const source = allReadyPlatforms;
+    if (!platformQuery.trim()) return source;
     const q = platformQuery.toLowerCase();
-    return filteredPlatforms.filter(
+    return source.filter(
       (p) =>
         p.name.toLowerCase().includes(q) ||
         p.family.toLowerCase().includes(q) ||
         (p.hint && p.hint.toLowerCase().includes(q))
     );
-  }, [filteredPlatforms, platformQuery]);
+  }, [allReadyPlatforms, platformQuery]);
 
-  // Group filtered results by family, separate not-ready
   const groupedResults = useMemo(() => {
     const ready = filteredForSearch.filter((p) => p.ready);
-    const notReady = filteredForSearch.filter((p) => !p.ready);
+    const notReady = platformQuery.trim()
+      ? PLATFORMS.filter((p) => !p.ready).filter(
+          (p) =>
+            p.name.toLowerCase().includes(platformQuery.toLowerCase()) ||
+            p.family.toLowerCase().includes(platformQuery.toLowerCase())
+        )
+      : PLATFORMS.filter((p) => !p.ready);
 
     const familyGroups: Record<string, typeof PLATFORMS> = {};
     ready.forEach((p) => {
@@ -262,9 +345,8 @@ export default function Home() {
     });
 
     return { familyGroups, notReady };
-  }, [filteredForSearch]);
+  }, [filteredForSearch, platformQuery]);
 
-  // Flat list for keyboard navigation
   const flatResults = useMemo(() => {
     const items: typeof PLATFORMS = [];
     Object.values(groupedResults.familyGroups).forEach((group) => items.push(...group));
@@ -272,7 +354,53 @@ export default function Home() {
     return items;
   }, [groupedResults]);
 
-  // Focus search input when palette opens + lock body scroll
+  // ─── Filtered + paginated events for preview ───
+  const filteredEvents = useMemo(() => {
+    if (!searchQuery.trim()) return events;
+    const q = searchQuery.toLowerCase();
+    return events.filter(
+      (e) =>
+        e.txHash.toLowerCase().includes(q) ||
+        e.tag.toLowerCase().includes(q) ||
+        e.asset.toLowerCase().includes(q) ||
+        e.paymentToken.toLowerCase().includes(q) ||
+        e.notes.toLowerCase().includes(q)
+    );
+  }, [events, searchQuery]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredEvents.length / ITEMS_PER_PAGE));
+
+  const paginatedEvents = useMemo(() => {
+    const start = (currentPage - 1) * ITEMS_PER_PAGE;
+    return filteredEvents.slice(start, start + ITEMS_PER_PAGE);
+  }, [filteredEvents, currentPage]);
+
+  // Reset page when search changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery]);
+
+  // ─── Dark mode initialization ───
+  useEffect(() => {
+    const stored = localStorage.getItem("theme");
+    setDarkMode(stored !== "light");
+  }, []);
+
+  function toggleDarkMode() {
+    const next = !darkMode;
+    setDarkMode(next);
+    document.documentElement.classList.toggle("dark", next);
+    localStorage.setItem("theme", next ? "dark" : "light");
+  }
+
+  // ─── Focus address input on mount ───
+  useEffect(() => {
+    if (step === "address") {
+      setTimeout(() => addressInputRef.current?.focus(), 100);
+    }
+  }, [step]);
+
+  // ─── Command palette effects ───
   useEffect(() => {
     if (platformSearchOpen) {
       setTimeout(() => searchInputRef.current?.focus(), 20);
@@ -285,12 +413,10 @@ export default function Home() {
     return () => { document.body.style.overflow = ""; };
   }, [platformSearchOpen]);
 
-  // Reset active index when query changes
   useEffect(() => {
     setActiveIndex(0);
   }, [platformQuery]);
 
-  // Scroll active item into view
   useEffect(() => {
     if (!platformSearchOpen || !paletteBodyRef.current) return;
     const activeEl = paletteBodyRef.current.querySelector('[data-active="true"]');
@@ -299,12 +425,12 @@ export default function Home() {
     }
   }, [activeIndex, platformSearchOpen]);
 
-  // Global Ctrl+K shortcut to open palette
+  // Global Ctrl+K to open palette (available on address and detect steps)
   useEffect(() => {
     function handleGlobalKey(e: KeyboardEvent) {
       if ((e.ctrlKey || e.metaKey) && e.key === "k") {
         e.preventDefault();
-        if (step === "select") setPlatformSearchOpen((prev) => !prev);
+        if (step === "address" || step === "detect") setPlatformSearchOpen((prev) => !prev);
       }
       if (e.key === "Escape" && platformSearchOpen) {
         setPlatformSearchOpen(false);
@@ -314,14 +440,32 @@ export default function Home() {
     return () => document.removeEventListener("keydown", handleGlobalKey);
   }, [step, platformSearchOpen]);
 
-  function selectPlatform(id: string) {
-    setPlatform(id);
-    setPlatformSearchOpen(false);
-    setStep("input");
+  // ─── Actions ───
+
+  function proceedToDetect() {
+    const addr = account.trim();
+    if (!addr) return;
+    const detected = detectPlatformsForAddress(addr);
+    setDetectedPlatforms(detected);
+    setStep("detect");
     setError("");
   }
 
-  // Keyboard navigation for command palette
+  function selectPlatform(id: string) {
+    setPlatform(id);
+    setPlatformSearchOpen(false);
+    const plat = PLATFORMS.find((p) => p.id === id);
+    if (plat?.requiresAuth) {
+      setSkipAuth(false);
+      setStep("credentials");
+    } else {
+      setSkipAuth(true);
+      // Go directly to fetch
+      fetchEventsForPlatform(id);
+    }
+    setError("");
+  }
+
   const handlePaletteKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === "ArrowDown") {
@@ -338,10 +482,11 @@ export default function Home() {
         setPlatformSearchOpen(false);
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [flatResults, activeIndex]
   );
 
-  async function fetchEvents() {
+  async function fetchEventsForPlatform(platformId: string) {
     if (!account.trim()) return;
     setStep("loading");
     setError("");
@@ -350,7 +495,7 @@ export default function Home() {
 
     try {
       const body: Record<string, string> = {
-        platform,
+        platform: platformId,
         account: account.trim(),
       };
 
@@ -374,11 +519,17 @@ export default function Home() {
       setValidationErrors(data.validationErrors || []);
       setEventCount(data.count);
       setTruncated(data.truncated || false);
+      setSearchQuery("");
+      setCurrentPage(1);
       setStep("preview");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to fetch events");
-      setStep("input");
+      setStep(needsAuth ? "credentials" : "detect");
     }
+  }
+
+  async function fetchEvents() {
+    await fetchEventsForPlatform(platform);
   }
 
   function downloadCSV() {
@@ -396,8 +547,20 @@ export default function Home() {
     }
   }
 
+  function downloadJSON() {
+    if (validationErrors.length > 0) return;
+    const json = JSON.stringify(events, null, 2);
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${platform}-awakens-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   function reset() {
-    setStep("select");
+    setStep("address");
     setPlatform("");
     setAccount("");
     setApiKey("");
@@ -408,13 +571,13 @@ export default function Home() {
     setClassifiedError(null);
     setTruncated(false);
     setEventCount(0);
+    setDetectedPlatforms([]);
+    setSearchQuery("");
+    setCurrentPage(1);
+    setSkipAuth(false);
   }
 
-  const currentPlatform = PLATFORMS.find((p) => p.id === platform);
-  const platformName = currentPlatform?.name || platform;
-  const needsAuth = currentPlatform?.requiresAuth || false;
-  const platformMode = PLATFORM_MODES[platform] || "strict";
-  const platformDoc = PLATFORM_DOCS[platform];
+  // ─── Helpers ───
 
   function modeLabel(mode: string) {
     if (mode === "assisted") return { label: "Assisted", color: "text-amber-400", bg: "bg-amber-500/10", border: "border-amber-500/20" };
@@ -433,18 +596,29 @@ export default function Home() {
     return `${prefix}${s} ${paymentToken}`;
   }
 
+  const stepIndex = STEP_ORDER.indexOf(step);
+
   return (
-    <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-16">
-      {/* Header */}
-      <div className="mb-10 sm:mb-14 animate-fade-in ambient-glow">
+    <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-16">
+      {/* ─── Header ─── */}
+      <div className="mb-8 sm:mb-14 animate-fade-in ambient-glow">
         <div className="relative z-10">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-8 h-8 rounded-md bg-[var(--accent-dim)] border border-[var(--accent-border)] flex items-center justify-center">
-              <svg className="w-4 h-4 text-[var(--accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
-              </svg>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-md bg-[var(--accent-dim)] border border-[var(--accent-border)] flex items-center justify-center">
+                <svg className="w-4 h-4 text-[var(--accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+                </svg>
+              </div>
+              <span className="text-[10px] font-mono font-medium tracking-widest uppercase text-[var(--text-tertiary)]">Awakens Exporter</span>
             </div>
-            <span className="text-[10px] font-mono font-medium tracking-widest uppercase text-[var(--text-tertiary)]">Awakens Exporter</span>
+            {/* Dark mode toggle */}
+            <button
+              onClick={toggleDarkMode}
+              className="theme-toggle"
+              aria-label={darkMode ? "Switch to light mode" : "Switch to dark mode"}
+              title={darkMode ? "Switch to light mode" : "Switch to dark mode"}
+            />
           </div>
           <h1 className="text-3xl sm:text-[2.5rem] font-bold tracking-[-0.03em] text-[var(--text-primary)] mb-1 leading-[1.15]">
             Accounting Event<br className="hidden sm:block" /> Exporter
@@ -457,29 +631,27 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Step indicator */}
-      {step !== "select" && (
-        <div className="flex items-center gap-1 mb-10 animate-fade-in">
-          {[
-            { key: "select", label: "Platform", num: "01" },
-            { key: "input", label: "Account", num: "02" },
-            { key: "loading", label: "Fetch", num: "03" },
-            { key: "preview", label: "Export", num: "04" },
-          ].map((s, i) => {
+      {/* ─── Step indicator ─── */}
+      {step !== "address" && (
+        <div className="step-indicator-wrap flex items-center gap-1 mb-8 sm:mb-10 animate-fade-in">
+          {STEP_META.map((s, i) => {
             const isActive = step === s.key;
-            const isPast = ["select", "input", "loading", "preview"].indexOf(step) > i;
+            const isPast = stepIndex > i;
+            const isSkipped = s.key === "credentials" && skipAuth && !isActive;
             return (
               <div key={s.key} className="flex items-center gap-1">
-                {i > 0 && <div className={`w-8 h-px mx-1 ${isPast || isActive ? "bg-[var(--accent)]" : "bg-[var(--border-subtle)]"}`} />}
-                <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-mono transition-all ${
+                {i > 0 && <div className={`w-4 sm:w-8 h-px mx-0.5 sm:mx-1 ${isPast || isActive ? "bg-[var(--accent)]" : isSkipped ? "bg-[var(--border-medium)] opacity-40" : "bg-[var(--border-subtle)]"}`} />}
+                <div className={`flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2.5 py-1 rounded-md text-[10px] sm:text-xs font-mono transition-all whitespace-nowrap ${
                   isActive
                     ? "bg-[var(--accent-dim)] text-[var(--accent)] border border-[var(--accent-border)]"
                     : isPast
                     ? "text-[var(--accent)]"
+                    : isSkipped
+                    ? "text-[var(--text-tertiary)] opacity-40 line-through"
                     : "text-[var(--text-tertiary)]"
                 }`}>
                   <span className="opacity-50">{s.num}</span>
-                  <span className="font-medium">{s.label}</span>
+                  <span className="font-medium hidden sm:inline">{s.label}</span>
                 </div>
               </div>
             );
@@ -487,7 +659,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* Error display with classification and recovery guidance */}
+      {/* ─── Error display ─── */}
       {error && (
         <div className={`mb-8 p-4 rounded-lg text-sm font-mono whitespace-pre-wrap animate-fade-in ${
           classifiedError?.blockedByDesign
@@ -511,14 +683,12 @@ export default function Home() {
               )}
             </div>
             <div className="flex-1 space-y-2">
-              {/* Error type label */}
               {classifiedError && (
                 <div className="text-[10px] font-semibold uppercase tracking-wider opacity-70">
                   {classifiedError.blockedByDesign ? "Blocked by design" : classifiedError.type.replace("-", " ")}
                 </div>
               )}
               <div>{error}</div>
-              {/* Recovery action */}
               {classifiedError?.userAction && !classifiedError.blockedByDesign && (
                 <div className="pt-2 border-t border-current/10 flex items-center gap-3">
                   <span className="text-[11px] opacity-80">{classifiedError.userAction}</span>
@@ -542,38 +712,13 @@ export default function Home() {
         </div>
       )}
 
-      {/* Step 1: Usecase + Platform selection */}
-      {step === "select" && (
+      {/* ═══════════════════════════════════════════════════
+          STEP 1: Address Input
+         ═══════════════════════════════════════════════════ */}
+      {step === "address" && (
         <div className="animate-fade-in-up">
-          {/* Usecase selector */}
-          <div className="mb-10">
-            <div className="flex items-center gap-2 mb-4">
-              <span className="text-[10px] font-mono font-medium tracking-widest uppercase text-[var(--text-tertiary)]">Use Case</span>
-              <div className="flex-1 h-px bg-[var(--border-subtle)]" />
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 stagger">
-              {USECASES.map((uc) => (
-                <button
-                  key={uc.id}
-                  onClick={() => setUsecase(usecase === uc.id ? null : uc.id)}
-                  data-active={usecase === uc.id}
-                  className={`usecase-card animate-fade-in p-5 rounded-lg border text-left transition-all duration-200 ${
-                    usecase === uc.id
-                      ? "border-[var(--accent-border)] bg-[var(--accent-dim)]"
-                      : "border-[var(--border-subtle)] hover:border-[var(--border-medium)] hover:bg-[var(--surface-2)]"
-                  }`}
-                >
-                  <div className={`text-sm font-semibold mb-1.5 transition-colors ${usecase === uc.id ? "text-[var(--accent)]" : "text-[var(--text-primary)]"}`}>
-                    {uc.label}
-                  </div>
-                  <div className="text-xs text-[var(--text-tertiary)] leading-relaxed">{uc.description}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-
           {/* Trust anchor */}
-          <div className="mb-10 p-5 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)]">
+          <div className="mb-8 p-5 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)]">
             <div className="flex items-start gap-3.5">
               <div className="w-9 h-9 rounded-lg bg-[var(--accent-dim)] border border-[var(--accent-border)] flex items-center justify-center flex-shrink-0">
                 <svg className="w-4.5 h-4.5 text-[var(--accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -584,158 +729,76 @@ export default function Home() {
                 <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-1">Accounting-grade accuracy</h3>
                 <p className="text-[13px] text-[var(--text-secondary)] leading-relaxed">
                   We export only protocol-defined accounting events. When data is ambiguous or incomplete, we block the export to prevent accounting errors.
-                  Blocked data is a safety feature, not a limitation.
                 </p>
               </div>
             </div>
           </div>
 
-          {/* Command Palette Platform Selector */}
-          <div className="mb-5">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] font-mono font-medium tracking-widest uppercase text-[var(--text-tertiary)]">
-                  {usecase ? `${selectedUsecase?.label}` : "All Platforms"}
-                </span>
-                <div className="flex-1 h-px bg-[var(--border-subtle)]" />
-              </div>
-              {usecase && (
-                <button
-                  onClick={() => setUsecase(null)}
-                  className="text-[11px] font-mono text-[var(--text-tertiary)] hover:text-[var(--accent)] transition-colors duration-200"
-                >
-                  [show all]
-                </button>
-              )}
+          {/* Address input */}
+          <div className="max-w-lg mb-10">
+            <label className="block text-sm font-semibold text-[var(--text-primary)] mb-1.5">
+              Wallet or account address
+            </label>
+            <p className="text-[12px] text-[var(--text-tertiary)] mb-4 leading-relaxed">
+              Paste your address and we&apos;ll detect compatible platforms automatically.
+            </p>
+            <div className="flex gap-2">
+              <input
+                ref={addressInputRef}
+                type="text"
+                value={account}
+                onChange={(e) => setAccount(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && proceedToDetect()}
+                placeholder="0x..., cosmos1..., stake1..., tz1..."
+                spellCheck={false}
+                autoComplete="off"
+                className="flex-1 px-4 py-3.5 bg-[var(--surface-2)] border border-[var(--border-medium)] rounded-lg font-mono text-sm text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] focus:border-[var(--accent-border)] placeholder:text-[var(--text-tertiary)] transition-all duration-200"
+              />
+              <button
+                onClick={proceedToDetect}
+                disabled={!account.trim()}
+                className="btn-primary relative px-6 py-3.5 bg-[var(--accent)] text-white rounded-lg font-semibold text-sm hover:brightness-110 disabled:opacity-20 disabled:cursor-not-allowed transition-all duration-200"
+              >
+                <span className="relative z-10">Continue</span>
+              </button>
             </div>
-            <p className="text-xs text-[var(--text-tertiary)] mb-4 leading-relaxed">
-              {usecase === "perps" && "Platforms that emit explicit trade and funding events."}
-              {usecase === "staking" && "Chains that emit explicit staking reward and penalty events."}
-              {usecase === "advanced" && "Chains with limited but verifiable protocol events. Review blocked items carefully."}
-              {!usecase && "Choose the platform where your activity occurred."}
+            <button
+              onClick={() => setPlatformSearchOpen(true)}
+              className="mt-4 flex items-center gap-1.5 text-[12px] font-mono text-[var(--text-tertiary)] hover:text-[var(--accent)] transition-colors duration-200"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+              </svg>
+              Or browse all platforms
+              <span className="hidden sm:inline ml-1 opacity-60">
+                <kbd className="palette-kbd text-[9px] px-1">Ctrl+K</kbd>
+              </span>
+            </button>
+          </div>
+
+          {/* Explicit Refusals with tooltips */}
+          <div className="mb-10 p-5 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)]">
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-[10px] font-mono font-medium tracking-widest uppercase text-[var(--text-tertiary)]">What This Tool Will Never Do</span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-2.5">
+              {Object.entries(REFUSAL_TOOLTIPS).map(([item, tooltip], i) => (
+                <div key={i} className="group/tip relative flex items-center gap-2.5 text-[12px] text-[var(--text-secondary)]">
+                  <div className="w-1 h-1 rounded-full bg-[var(--text-tertiary)] flex-shrink-0" />
+                  <span className="cursor-help border-b border-dotted border-[var(--border-medium)]">{item}</span>
+                  <div className="absolute left-0 bottom-full mb-2 hidden group-hover/tip:block z-20 max-w-xs px-3 py-2 text-[11px] text-[var(--text-primary)] bg-[var(--surface-3)] border border-[var(--border-medium)] rounded-lg shadow-2xl shadow-black/30 pointer-events-none leading-relaxed">
+                    {tooltip}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="mt-4 text-[11px] text-[var(--text-tertiary)] leading-relaxed">
+              Skipped for accuracy — inferred events are blocked to avoid audit risk.
             </p>
           </div>
 
-          {/* Command palette trigger — prominent search bar */}
-          <button
-            onClick={() => setPlatformSearchOpen(true)}
-            className="w-full flex items-center gap-3.5 px-5 py-4 bg-[var(--surface-1)] border border-[var(--border-medium)] rounded-xl text-left transition-all duration-200 hover:border-[var(--accent-border)] hover:bg-[var(--surface-2)] group mb-8"
-          >
-            <svg className="w-5 h-5 text-[var(--text-tertiary)] group-hover:text-[var(--accent)] transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-            </svg>
-            <span className="flex-1 text-[15px] text-[var(--text-tertiary)] group-hover:text-[var(--text-secondary)] transition-colors">Search {filteredPlatforms.filter(p => p.ready).length} platforms...</span>
-            <span className="hidden sm:flex items-center gap-1 text-[11px] text-[var(--text-tertiary)]">
-              <kbd className="palette-kbd">Ctrl</kbd>
-              <kbd className="palette-kbd">K</kbd>
-            </span>
-          </button>
-
-          {/* Full-screen command palette overlay */}
-          {platformSearchOpen && (
-            <>
-              <div className="palette-backdrop" onClick={() => setPlatformSearchOpen(false)} />
-              <div className="command-palette" role="dialog" aria-modal="true" aria-label="Search platforms">
-                {/* Search header */}
-                <div className="command-palette-header">
-                  <div className="flex items-center gap-3">
-                    <svg className="w-5 h-5 text-[var(--accent)] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-                    </svg>
-                    <input
-                      ref={searchInputRef}
-                      type="text"
-                      value={platformQuery}
-                      onChange={(e) => setPlatformQuery(e.target.value)}
-                      onKeyDown={handlePaletteKeyDown}
-                      placeholder="Search platforms..."
-                      spellCheck={false}
-                      autoComplete="off"
-                    />
-                    <button
-                      onClick={() => setPlatformSearchOpen(false)}
-                      className="flex-shrink-0 palette-kbd text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors cursor-pointer"
-                    >
-                      esc
-                    </button>
-                  </div>
-                </div>
-
-                {/* Scrollable results body */}
-                <div className="command-palette-body" ref={paletteBodyRef}>
-                  {Object.entries(groupedResults.familyGroups).map(([family, platforms]) => (
-                    <div key={family}>
-                      <div className="command-palette-group">
-                        {FAMILY_LABELS[family] || family}
-                      </div>
-                      {platforms.map((p) => {
-                        const idx = flatResults.indexOf(p);
-                        const mode = modeLabel(PLATFORM_MODES[p.id] || "strict");
-                        return (
-                          <button
-                            key={p.id}
-                            data-active={idx === activeIndex}
-                            onClick={() => selectPlatform(p.id)}
-                            onMouseEnter={() => setActiveIndex(idx)}
-                            className="command-palette-item w-full text-left"
-                          >
-                            <div className="flex-1 min-w-0">
-                              <div className="palette-item-name">{p.name}</div>
-                              <div className="palette-item-hint truncate">{p.hint}</div>
-                            </div>
-                            <span className={`text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded ${mode.bg} ${mode.color} border ${mode.border} uppercase tracking-wider flex-shrink-0`}>
-                              {mode.label}
-                            </span>
-                            {p.requiresAuth && (
-                              <svg className="w-3.5 h-3.5 text-amber-400/60 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" />
-                              </svg>
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ))}
-
-                  {/* Coming Soon group */}
-                  {groupedResults.notReady.length > 0 && (
-                    <div>
-                      <div className="command-palette-group">Coming Soon</div>
-                      {groupedResults.notReady.map((p) => (
-                        <div
-                          key={p.id}
-                          className="command-palette-item opacity-30 cursor-not-allowed"
-                        >
-                          <div className="flex-1 min-w-0">
-                            <div className="palette-item-name">{p.name}</div>
-                            <div className="palette-item-hint truncate">{p.hint}</div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {flatResults.length === 0 && (
-                    <div className="px-5 py-12 text-center">
-                      <div className="text-sm text-[var(--text-tertiary)] mb-1">No platforms found</div>
-                      <div className="text-xs text-[var(--text-tertiary)] opacity-60">Try a different search term</div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Footer with keyboard hints */}
-                <div className="command-palette-footer">
-                  <span className="flex items-center gap-1.5"><kbd className="palette-kbd">↑↓</kbd> navigate</span>
-                  <span className="flex items-center gap-1.5"><kbd className="palette-kbd">↵</kbd> select</span>
-                  <span className="flex items-center gap-1.5"><kbd className="palette-kbd">esc</kbd> close</span>
-                  <span className="ml-auto">{filteredForSearch.filter(p => p.ready).length} available</span>
-                </div>
-              </div>
-            </>
-          )}
-
-          {/* Chain Eligibility Framework */}
-          <div className="mt-14 mb-10">
+          {/* Eligibility criteria */}
+          <div className="mb-10">
             <div className="flex items-center gap-2 mb-5">
               <span className="text-[10px] font-mono font-medium tracking-widest uppercase text-[var(--text-tertiary)]">Eligibility Criteria</span>
               <div className="flex-1 h-px bg-[var(--border-subtle)]" />
@@ -762,48 +825,103 @@ export default function Home() {
                 </div>
               ))}
             </div>
-            <p className="mt-3 text-[11px] text-[var(--text-tertiary)] leading-relaxed">
-              If any criterion fails, the activity or chain is blocked. This is how we prevent accounting errors at scale.
-            </p>
-          </div>
-
-          {/* Explicit Refusals */}
-          <div className="mb-10 p-5 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)]">
-            <div className="flex items-center gap-2 mb-4">
-              <span className="text-[10px] font-mono font-medium tracking-widest uppercase text-[var(--text-tertiary)]">Explicit Refusals</span>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-2.5">
-              {[
-                "Infer trades from token transfers",
-                "Reconstruct balances from state changes",
-                "Estimate unrealized P&L",
-                "Guess missing or ambiguous data",
-                "Net, aggregate, or summarize values",
-                "Display charts, dashboards, or analytics",
-              ].map((item, i) => (
-                <div key={i} className="flex items-center gap-2.5 text-[12px] text-[var(--text-secondary)]">
-                  <div className="w-1 h-1 rounded-full bg-[var(--text-tertiary)] flex-shrink-0" />
-                  <span>{item}</span>
-                </div>
-              ))}
-            </div>
-            <p className="mt-4 text-[11px] text-[var(--text-tertiary)] leading-relaxed">
-              These constraints are deliberate. Each one eliminates a category of accounting risk.
-            </p>
           </div>
         </div>
       )}
 
-      {/* Step 2: Account input */}
-      {step === "input" && (
+      {/* ═══════════════════════════════════════════════════
+          STEP 2: Platform Detection
+         ═══════════════════════════════════════════════════ */}
+      {step === "detect" && (
+        <div className="animate-fade-in-up">
+          {/* Detected platforms */}
+          {detectedPlatforms.length > 0 ? (
+            <div className="mb-8">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-sm font-semibold text-[var(--text-primary)]">
+                  {detectedPlatforms.length} compatible platform{detectedPlatforms.length !== 1 ? "s" : ""} detected
+                </span>
+              </div>
+              <p className="text-[12px] text-[var(--text-tertiary)] mb-5 leading-relaxed">
+                Select the platform where your activity occurred. The address <span className="font-mono text-[var(--text-secondary)]">{account.slice(0, 12)}...{account.slice(-6)}</span> matches these platforms.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 stagger">
+                {detectedPlatforms.map((p) => {
+                  const mode = modeLabel(PLATFORM_MODES[p.id] || "strict");
+                  return (
+                    <button
+                      key={p.id}
+                      onClick={() => selectPlatform(p.id)}
+                      className="platform-card p-4 rounded-lg border border-[var(--border-subtle)] hover:border-[var(--accent-border)] bg-[var(--surface-1)] text-left transition-all duration-200 group"
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[13px] font-semibold text-[var(--text-primary)] group-hover:text-[var(--accent)] transition-colors">{p.name}</span>
+                        <span className={`text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded ${mode.bg} ${mode.color} border ${mode.border} uppercase tracking-wider`}>
+                          {mode.label}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-[var(--text-tertiary)] leading-relaxed">{p.hint}</div>
+                      {p.requiresAuth && (
+                        <div className="flex items-center gap-1.5 mt-2 text-[10px] text-amber-400/80">
+                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" />
+                          </svg>
+                          Requires API key
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            <div className="mb-8 p-6 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] text-center">
+              <div className="w-10 h-10 rounded-lg bg-[var(--surface-2)] border border-[var(--border-subtle)] flex items-center justify-center mx-auto mb-3">
+                <svg className="w-5 h-5 text-[var(--text-tertiary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                </svg>
+              </div>
+              <p className="text-sm text-[var(--text-secondary)] mb-1">No platforms auto-detected for this address format</p>
+              <p className="text-[12px] text-[var(--text-tertiary)]">Browse all platforms below to find your chain.</p>
+            </div>
+          )}
+
+          {/* Browse all platforms */}
+          <button
+            onClick={() => setPlatformSearchOpen(true)}
+            className="w-full flex items-center gap-3.5 px-5 py-4 bg-[var(--surface-1)] border border-[var(--border-medium)] rounded-xl text-left transition-all duration-200 hover:border-[var(--accent-border)] hover:bg-[var(--surface-2)] group mb-8"
+          >
+            <svg className="w-5 h-5 text-[var(--text-tertiary)] group-hover:text-[var(--accent)] transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+            </svg>
+            <span className="flex-1 text-[15px] text-[var(--text-tertiary)] group-hover:text-[var(--text-secondary)] transition-colors">Browse all {allReadyPlatforms.length} platforms...</span>
+            <span className="hidden sm:flex items-center gap-1 text-[11px] text-[var(--text-tertiary)]">
+              <kbd className="palette-kbd">Ctrl</kbd>
+              <kbd className="palette-kbd">K</kbd>
+            </span>
+          </button>
+
+          <button onClick={() => { setStep("address"); setError(""); }} className="flex items-center gap-1.5 text-[12px] font-mono text-[var(--text-tertiary)] hover:text-[var(--accent)] transition-colors duration-200">
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+            </svg>
+            Change address
+          </button>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════
+          STEP 3: Credentials
+         ═══════════════════════════════════════════════════ */}
+      {step === "credentials" && (
         <div className="max-w-lg space-y-6 animate-fade-in-up">
           <div>
             <label className="block text-sm font-semibold text-[var(--text-primary)] mb-1.5">
               {platformName}
             </label>
-            <p className="text-[12px] text-[var(--text-tertiary)] mb-5 leading-relaxed">{currentPlatform?.hint || "Enter your wallet address"}</p>
+            <p className="text-[12px] text-[var(--text-tertiary)] mb-5 leading-relaxed">{currentPlatform?.hint || "Enter your credentials"}</p>
 
-            {/* Mode context banner */}
+            {/* Mode context banners */}
             {platformMode === "assisted" && (
               <div className="mb-5 p-4 rounded-lg bg-amber-500/10 border border-amber-500/20">
                 <div className="flex items-start gap-3">
@@ -829,7 +947,7 @@ export default function Home() {
               </div>
             )}
 
-            {/* Platform-specific docs */}
+            {/* Platform docs */}
             {platformDoc && (
               <div className="mb-5 p-4 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)]">
                 <div className="space-y-2 text-[12px]">
@@ -848,78 +966,65 @@ export default function Home() {
               </div>
             )}
 
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={account}
-                onChange={(e) => setAccount(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && !needsAuth && fetchEvents()}
-                placeholder={currentPlatform?.placeholder || "0x..."}
-                spellCheck={false}
-                className="flex-1 px-4 py-3 bg-[var(--surface-2)] border border-[var(--border-medium)] rounded-lg font-mono text-sm text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] focus:border-[var(--accent-border)] placeholder:text-[var(--text-tertiary)] transition-all duration-200"
-              />
-              {!needsAuth && (
-                <button
-                  onClick={fetchEvents}
-                  disabled={!account.trim()}
-                  className="btn-primary relative px-6 py-3 bg-[var(--accent)] text-white rounded-lg font-semibold text-sm hover:brightness-110 disabled:opacity-20 disabled:cursor-not-allowed transition-all duration-200"
-                >
-                  <span className="relative z-10">Fetch</span>
-                </button>
-              )}
+            {/* Account display (read-only) */}
+            <div className="mb-4">
+              <label className="block text-[11px] font-mono font-medium text-[var(--text-tertiary)] mb-1.5 uppercase tracking-wider">Account</label>
+              <div className="px-4 py-3 bg-[var(--surface-2)] border border-[var(--border-subtle)] rounded-lg font-mono text-sm text-[var(--text-secondary)] truncate">
+                {account}
+              </div>
             </div>
           </div>
 
           {/* API key fields */}
-          {needsAuth && (
-            <div className="space-y-4">
-              <div className="p-4 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[12px] text-amber-300 leading-relaxed">
-                <div className="font-semibold mb-1 text-amber-200">Credentials are never stored</div>
-                Sent directly to {platformName}&apos;s API from our server. We recommend a read-only key.
-              </div>
-              <div>
-                <label className="block text-[11px] font-mono font-medium text-[var(--text-tertiary)] mb-1.5 uppercase tracking-wider">API Key</label>
-                <input
-                  type="text"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  placeholder="Your API key"
-                  spellCheck={false}
-                  className="w-full px-4 py-3 bg-[var(--surface-2)] border border-[var(--border-medium)] rounded-lg font-mono text-sm text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] focus:border-[var(--accent-border)] placeholder:text-[var(--text-tertiary)] transition-all duration-200"
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-mono font-medium text-[var(--text-tertiary)] mb-1.5 uppercase tracking-wider">API Secret</label>
-                <input
-                  type="password"
-                  value={apiSecret}
-                  onChange={(e) => setApiSecret(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && fetchEvents()}
-                  placeholder="Your API secret"
-                  spellCheck={false}
-                  className="w-full px-4 py-3 bg-[var(--surface-2)] border border-[var(--border-medium)] rounded-lg font-mono text-sm text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] focus:border-[var(--accent-border)] placeholder:text-[var(--text-tertiary)] transition-all duration-200"
-                />
-              </div>
-              <button
-                onClick={fetchEvents}
-                disabled={!account.trim() || !apiKey.trim()}
-                className="btn-primary relative w-full px-6 py-3 bg-[var(--accent)] text-white rounded-lg font-semibold text-sm hover:brightness-110 disabled:opacity-20 disabled:cursor-not-allowed transition-all duration-200"
-              >
-                <span className="relative z-10">Fetch accounting events</span>
-              </button>
+          <div className="space-y-4">
+            <div className="p-4 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[12px] text-amber-300 leading-relaxed">
+              <div className="font-semibold mb-1 text-amber-200">Credentials are never stored</div>
+              Sent directly to {platformName}&apos;s API from our server. We recommend a read-only key.
             </div>
-          )}
+            <div>
+              <label className="block text-[11px] font-mono font-medium text-[var(--text-tertiary)] mb-1.5 uppercase tracking-wider">API Key</label>
+              <input
+                type="text"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="Your API key"
+                spellCheck={false}
+                className="w-full px-4 py-3 bg-[var(--surface-2)] border border-[var(--border-medium)] rounded-lg font-mono text-sm text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] focus:border-[var(--accent-border)] placeholder:text-[var(--text-tertiary)] transition-all duration-200"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-mono font-medium text-[var(--text-tertiary)] mb-1.5 uppercase tracking-wider">API Secret</label>
+              <input
+                type="password"
+                value={apiSecret}
+                onChange={(e) => setApiSecret(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && fetchEvents()}
+                placeholder="Your API secret"
+                spellCheck={false}
+                className="w-full px-4 py-3 bg-[var(--surface-2)] border border-[var(--border-medium)] rounded-lg font-mono text-sm text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] focus:border-[var(--accent-border)] placeholder:text-[var(--text-tertiary)] transition-all duration-200"
+              />
+            </div>
+            <button
+              onClick={fetchEvents}
+              disabled={!account.trim() || !apiKey.trim()}
+              className="btn-primary relative w-full px-6 py-3 bg-[var(--accent)] text-white rounded-lg font-semibold text-sm hover:brightness-110 disabled:opacity-20 disabled:cursor-not-allowed transition-all duration-200"
+            >
+              <span className="relative z-10">Fetch accounting events</span>
+            </button>
+          </div>
 
-          <button onClick={reset} className="flex items-center gap-1.5 text-[12px] font-mono text-[var(--text-tertiary)] hover:text-[var(--accent)] transition-colors duration-200">
+          <button onClick={() => { setStep("detect"); setError(""); }} className="flex items-center gap-1.5 text-[12px] font-mono text-[var(--text-tertiary)] hover:text-[var(--accent)] transition-colors duration-200">
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
             </svg>
-            Back to platforms
+            Back to platform selection
           </button>
         </div>
       )}
 
-      {/* Step 3: Loading */}
+      {/* ═══════════════════════════════════════════════════
+          STEP 4: Loading
+         ═══════════════════════════════════════════════════ */}
       {step === "loading" && (
         <div className="animate-fade-in py-20 flex flex-col items-center justify-center gap-6">
           <div className="relative w-14 h-14">
@@ -943,12 +1048,14 @@ export default function Home() {
         </div>
       )}
 
-      {/* Step 4: Preview + Export */}
+      {/* ═══════════════════════════════════════════════════
+          STEP 5: Preview + Export
+         ═══════════════════════════════════════════════════ */}
       {step === "preview" && (
         <div className="space-y-6 animate-fade-in-up">
           {/* Stats bar */}
-          <div className="flex items-center justify-between flex-wrap gap-4 pb-5 glow-line">
-            <div className="flex items-center gap-3 text-sm">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-5 glow-line">
+            <div className="flex items-center gap-3 text-sm flex-wrap">
               <div className="font-mono">
                 <span className="text-[var(--accent)] font-bold text-lg">{eventCount}</span>
                 <span className="text-[var(--text-tertiary)] text-xs ml-1.5">event{eventCount !== 1 ? "s" : ""}</span>
@@ -969,7 +1076,7 @@ export default function Home() {
                 );
               })()}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               {/* View toggle */}
               <div className="flex rounded-md border border-[var(--border-subtle)] bg-[var(--surface-1)] overflow-hidden">
                 <button
@@ -996,13 +1103,21 @@ export default function Home() {
               >
                 Start Over
               </button>
+              {/* CSV export */}
               <button
                 onClick={downloadCSV}
                 disabled={validationErrors.length > 0}
-                className="group btn-primary relative px-5 py-2 text-[12px] font-semibold bg-[var(--accent)] text-white rounded-md hover:brightness-110 disabled:opacity-20 disabled:cursor-not-allowed transition-all duration-200"
+                className="group btn-primary relative px-4 py-2 text-[12px] font-semibold bg-[var(--accent)] text-white rounded-md hover:brightness-110 disabled:opacity-20 disabled:cursor-not-allowed transition-all duration-200"
               >
-                <span className="relative z-10 block leading-tight">Export Verified CSV</span>
-                <span className="relative z-10 block text-[9px] font-normal opacity-60 group-hover:opacity-80 leading-tight tracking-normal">{eventCount} validated event{eventCount !== 1 ? "s" : ""} · deterministic</span>
+                <span className="relative z-10">Export CSV</span>
+              </button>
+              {/* JSON export */}
+              <button
+                onClick={downloadJSON}
+                disabled={validationErrors.length > 0}
+                className="px-4 py-2 text-[12px] font-semibold border border-[var(--accent-border)] text-[var(--accent)] rounded-md hover:bg-[var(--accent-dim)] disabled:opacity-20 disabled:cursor-not-allowed transition-all duration-200"
+              >
+                Export JSON
               </button>
             </div>
           </div>
@@ -1025,11 +1140,37 @@ export default function Home() {
             </div>
           )}
 
-          {/* Integrity Panel */}
+          {/* Assisted/Partial mode warnings */}
+          {platformMode === "assisted" && (
+            <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg animate-fade-in">
+              <div className="flex items-start gap-3">
+                <div className="w-5 h-5 rounded-full bg-amber-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <span className="text-amber-400 text-[10px] font-bold">!</span>
+                </div>
+                <div className="text-[12px] text-amber-300 leading-relaxed">
+                  <span className="font-semibold">Assisted Mode</span> — Some events may require manual review before use in accounting. Review each event for accuracy.
+                </div>
+              </div>
+            </div>
+          )}
+          {platformMode === "partial" && (
+            <div className="p-4 bg-sky-500/10 border border-sky-500/20 rounded-lg animate-fade-in">
+              <div className="flex items-start gap-3">
+                <div className="w-5 h-5 rounded-full bg-sky-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <span className="text-sky-400 text-[10px] font-bold">i</span>
+                </div>
+                <div className="text-[12px] text-sky-300 leading-relaxed">
+                  <span className="font-semibold">Partial Support</span> — Only protocol-defined events are included. Events requiring inference are blocked by design.
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Integrity panel */}
           <div className="relative bg-[var(--surface-2)] border border-[var(--border-subtle)] rounded-lg px-6 py-5 overflow-hidden">
             <div className="absolute top-0 left-0 right-0 h-px bg-[var(--border-strong)]" />
             <p className="font-mono text-[12px] text-[var(--text-secondary)] tracking-widest uppercase mb-3">Export Integrity</p>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-2.5">
               {[
                 "Protocol-defined accounting events only",
                 "No inferred balances or P&L",
@@ -1075,13 +1216,70 @@ export default function Home() {
             </div>
           )}
 
+          {/* Search + pagination controls */}
+          {events.length > 0 && (
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+              {/* Search */}
+              <div className="relative flex-1 w-full sm:max-w-sm">
+                <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                </svg>
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search txHash, type, asset..."
+                  spellCheck={false}
+                  className="w-full pl-9 pr-3 py-2 bg-[var(--surface-2)] border border-[var(--border-medium)] rounded-md font-mono text-xs text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] focus:border-[var(--accent-border)] placeholder:text-[var(--text-tertiary)] transition-all duration-200"
+                />
+                {searchQuery && (
+                  <button onClick={() => setSearchQuery("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]">
+                    <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                    </svg>
+                  </button>
+                )}
+              </div>
+
+              {/* Row count + pagination */}
+              <div className="flex items-center gap-3 text-[11px] font-mono text-[var(--text-tertiary)]">
+                <span>
+                  {searchQuery
+                    ? `${filteredEvents.length} of ${events.length} events`
+                    : `${events.length} event${events.length !== 1 ? "s" : ""}`
+                  }
+                </span>
+                {totalPages > 1 && (
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                      disabled={currentPage <= 1}
+                      className="px-2 py-1 rounded border border-[var(--border-subtle)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:border-[var(--border-medium)] disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                    >
+                      Prev
+                    </button>
+                    <span className="text-[var(--text-secondary)]">{currentPage} / {totalPages}</span>
+                    <button
+                      onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                      disabled={currentPage >= totalPages}
+                      className="px-2 py-1 rounded border border-[var(--border-subtle)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:border-[var(--border-medium)] disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                    >
+                      Next
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Events display */}
           {events.length > 0 ? (
             <>
               {/* List view */}
               {viewMode === "list" && (
                 <div className="space-y-1.5 stagger">
-                  {events.map((event, i) => {
+                  {paginatedEvents.map((event, i) => {
+                    const globalIndex = (currentPage - 1) * ITEMS_PER_PAGE + i;
                     const tagColors: Record<string, string> = {
                       open_position: "text-blue-400",
                       close_position: "text-teal-400",
@@ -1097,22 +1295,19 @@ export default function Home() {
                       slashing: "bg-rose-400",
                     };
                     const pnlColor = event.pnl > 0 ? "text-emerald-400" : event.pnl < 0 ? "text-red-400" : "text-[var(--text-tertiary)]";
-                    const hasErrors = validationErrors.some((e) => e.row === i);
+                    const hasErrors = validationErrors.some((e) => e.row === globalIndex);
 
                     return (
                       <details
-                        key={`${event.txHash}-${i}`}
+                        key={`${event.txHash}-${globalIndex}`}
                         className={`event-item animate-fade-in group rounded-lg border transition-all duration-200 ${
                           hasErrors
                             ? "border-red-500/20 bg-red-500/[0.08]"
                             : "border-[var(--border-subtle)] hover:border-[var(--border-medium)] bg-[var(--surface-1)]"
                         }`}
                       >
-                        <summary className="flex items-center gap-4 px-4 py-3.5 cursor-pointer list-none select-none">
-                          {/* Dot indicator */}
+                        <summary className="flex items-center gap-3 sm:gap-4 px-3 sm:px-4 py-3.5 cursor-pointer list-none select-none">
                           <div className={`w-2 h-2 rounded-full flex-shrink-0 ${tagDots[event.tag] || "bg-zinc-500"}`} />
-
-                          {/* Event info */}
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
                               <span className={`text-[13px] font-semibold ${tagColors[event.tag] || "text-[var(--text-secondary)]"}`}>{formatTag(event.tag)}</span>
@@ -1122,8 +1317,6 @@ export default function Home() {
                               {event.date}
                             </div>
                           </div>
-
-                          {/* Outcome */}
                           <div className="text-right flex-shrink-0">
                             <div className="text-[13px] font-mono font-medium text-[var(--text-primary)]">
                               {event.amount.toFixed(8).replace(/\.?0+$/, "")}
@@ -1135,14 +1328,11 @@ export default function Home() {
                               </div>
                             )}
                           </div>
-
-                          {/* Chevron */}
                           <svg className="w-3.5 h-3.5 text-[var(--text-tertiary)] group-open:rotate-90 transition-transform duration-200 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                             <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
                           </svg>
                         </summary>
-
-                        <div className="px-4 pb-4 pt-2 border-t border-[var(--border-subtle)] ml-6">
+                        <div className="px-3 sm:px-4 pb-4 pt-2 border-t border-[var(--border-subtle)] ml-6">
                           <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-[11px] font-mono">
                             <div>
                               <span className="text-[var(--text-tertiary)]">Fee </span>
@@ -1164,7 +1354,7 @@ export default function Home() {
                             )}
                             {hasErrors && (
                               <div className="col-span-2 mt-1 text-red-400">
-                                {validationErrors.filter((e) => e.row === i).map((err, idx) => (
+                                {validationErrors.filter((e) => e.row === globalIndex).map((err, idx) => (
                                   <div key={idx}>[{err.field}] {err.message}</div>
                                 ))}
                               </div>
@@ -1185,7 +1375,33 @@ export default function Home() {
 
               {/* Table view */}
               {viewMode === "table" && (
-                <EventTable events={events} validationErrors={validationErrors} platformMode={platformMode} />
+                <EventTable events={paginatedEvents} validationErrors={validationErrors} platformMode={platformMode} />
+              )}
+
+              {/* Bottom pagination */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between pt-2 text-[11px] font-mono text-[var(--text-tertiary)]">
+                  <span>
+                    Showing {(currentPage - 1) * ITEMS_PER_PAGE + 1}–{Math.min(currentPage * ITEMS_PER_PAGE, filteredEvents.length)} of {filteredEvents.length}
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                      disabled={currentPage <= 1}
+                      className="px-2.5 py-1 rounded border border-[var(--border-subtle)] hover:text-[var(--text-primary)] hover:border-[var(--border-medium)] disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                    >
+                      Previous
+                    </button>
+                    <span className="px-2 text-[var(--text-secondary)]">{currentPage} / {totalPages}</span>
+                    <button
+                      onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                      disabled={currentPage >= totalPages}
+                      className="px-2.5 py-1 rounded border border-[var(--border-subtle)] hover:text-[var(--text-primary)] hover:border-[var(--border-medium)] disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
               )}
             </>
           ) : (
@@ -1209,7 +1425,7 @@ export default function Home() {
                     Try different account
                   </button>
                   <button
-                    onClick={() => { setStep("input"); setError(""); }}
+                    onClick={() => { setStep("address"); setError(""); }}
                     className="px-4 py-2 text-[12px] font-medium border border-[var(--accent-border)] rounded-md text-[var(--accent)] hover:bg-[var(--accent-dim)] transition-all duration-200"
                   >
                     Edit address
@@ -1220,7 +1436,109 @@ export default function Home() {
           )}
         </div>
       )}
-      {/* Footer */}
+
+      {/* ═══════════════════════════════════════════════════
+          Command Palette (available on address + detect steps)
+         ═══════════════════════════════════════════════════ */}
+      {platformSearchOpen && (
+        <>
+          <div className="palette-backdrop" onClick={() => setPlatformSearchOpen(false)} />
+          <div className="command-palette" role="dialog" aria-modal="true" aria-label="Search platforms">
+            <div className="command-palette-header">
+              <div className="flex items-center gap-3">
+                <svg className="w-5 h-5 text-[var(--accent)] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                </svg>
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  value={platformQuery}
+                  onChange={(e) => setPlatformQuery(e.target.value)}
+                  onKeyDown={handlePaletteKeyDown}
+                  placeholder="Search platforms..."
+                  spellCheck={false}
+                  autoComplete="off"
+                />
+                <button
+                  onClick={() => setPlatformSearchOpen(false)}
+                  className="flex-shrink-0 palette-kbd text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors cursor-pointer"
+                >
+                  esc
+                </button>
+              </div>
+            </div>
+
+            <div className="command-palette-body" ref={paletteBodyRef}>
+              {Object.entries(groupedResults.familyGroups).map(([family, platforms]) => (
+                <div key={family}>
+                  <div className="command-palette-group">
+                    {FAMILY_LABELS[family] || family}
+                  </div>
+                  {platforms.map((p) => {
+                    const idx = flatResults.indexOf(p);
+                    const mode = modeLabel(PLATFORM_MODES[p.id] || "strict");
+                    return (
+                      <button
+                        key={p.id}
+                        data-active={idx === activeIndex}
+                        onClick={() => selectPlatform(p.id)}
+                        onMouseEnter={() => setActiveIndex(idx)}
+                        className="command-palette-item w-full text-left"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="palette-item-name">{p.name}</div>
+                          <div className="palette-item-hint truncate">{p.hint}</div>
+                        </div>
+                        <span className={`text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded ${mode.bg} ${mode.color} border ${mode.border} uppercase tracking-wider flex-shrink-0`}>
+                          {mode.label}
+                        </span>
+                        {p.requiresAuth && (
+                          <svg className="w-3.5 h-3.5 text-amber-400/60 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" />
+                          </svg>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
+
+              {groupedResults.notReady.length > 0 && (
+                <div>
+                  <div className="command-palette-group">Coming Soon</div>
+                  {groupedResults.notReady.map((p) => (
+                    <div
+                      key={p.id}
+                      className="command-palette-item opacity-30 cursor-not-allowed"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="palette-item-name">{p.name}</div>
+                        <div className="palette-item-hint truncate">{p.hint}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {flatResults.length === 0 && (
+                <div className="px-5 py-12 text-center">
+                  <div className="text-sm text-[var(--text-tertiary)] mb-1">No platforms found</div>
+                  <div className="text-xs text-[var(--text-tertiary)] opacity-60">Try a different search term</div>
+                </div>
+              )}
+            </div>
+
+            <div className="command-palette-footer">
+              <span className="flex items-center gap-1.5"><kbd className="palette-kbd">↑↓</kbd> navigate</span>
+              <span className="flex items-center gap-1.5"><kbd className="palette-kbd">↵</kbd> select</span>
+              <span className="flex items-center gap-1.5"><kbd className="palette-kbd">esc</kbd> close</span>
+              <span className="ml-auto">{filteredForSearch.filter(p => p.ready).length} available</span>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ─── Footer ─── */}
       <footer className="mt-20 pt-6 pb-2 border-t border-[var(--border-subtle)]">
         <div className="flex items-center justify-between text-[10px] font-mono text-[var(--text-tertiary)] tracking-wide">
           <span>Awakens Exporter &middot; Correctness-first accounting</span>
