@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { AwakensEvent, ValidationError } from "@/lib/core/types";
 
 type SortKey = keyof AwakensEvent;
@@ -117,15 +117,32 @@ export default function EventTable({
   events,
   validationErrors = [],
   platformMode = "strict",
+  pageOffset = 0,
+  pageSortKey,
+  pageSortDir,
+  onPageSort,
 }: {
   events: AwakensEvent[];
   validationErrors?: ValidationError[];
   platformMode?: "strict" | "assisted" | "partial" | "blocked";
+  pageOffset?: number;
+  pageSortKey?: SortKey;
+  pageSortDir?: SortDir;
+  onPageSort?: (key: SortKey, dir: SortDir) => void;
 }) {
-  const [sortKey, setSortKey] = useState<SortKey>("date");
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [internalSortKey, setInternalSortKey] = useState<SortKey>("date");
+  const [internalSortDir, setInternalSortDir] = useState<SortDir>("asc");
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
   const [groupByCategory, setGroupByCategory] = useState(true);
+
+  // Use page-level sort if provided, otherwise use internal sort
+  const sortKey = pageSortKey ?? internalSortKey;
+  const sortDir = pageSortDir ?? internalSortDir;
+
+  // Bug 6: Clear expanded rows when events change (page navigation)
+  useEffect(() => {
+    setExpandedRows(new Set());
+  }, [events]);
 
   const errorMap = useMemo(() => {
     const map = new Map<number, ValidationError[]>();
@@ -137,7 +154,7 @@ export default function EventTable({
   }, [validationErrors]);
 
   const sorted = useMemo(() => {
-    return [...events].map((event, idx) => ({ event, originalIndex: idx + 1 })).sort((a, b) => {
+    return [...events].map((event, idx) => ({ event, originalIndex: pageOffset + idx })).sort((a, b) => {
       const aVal = a.event[sortKey];
       const bVal = b.event[sortKey];
       if (typeof aVal === "number" && typeof bVal === "number") {
@@ -147,7 +164,7 @@ export default function EventTable({
       const bStr = String(bVal);
       return sortDir === "asc" ? aStr.localeCompare(bStr) : bStr.localeCompare(aStr);
     });
-  }, [events, sortKey, sortDir]);
+  }, [events, sortKey, sortDir, pageOffset]);
 
   const grouped = useMemo(() => {
     if (!groupByCategory) {
@@ -166,11 +183,12 @@ export default function EventTable({
   }, [sorted, groupByCategory]);
 
   function handleSort(key: SortKey) {
-    if (key === sortKey) {
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    const newDir = key === sortKey ? (sortDir === "asc" ? "desc" : "asc") : "asc";
+    if (onPageSort) {
+      onPageSort(key, newDir);
     } else {
-      setSortKey(key);
-      setSortDir("asc");
+      setInternalSortKey(key);
+      setInternalSortDir(newDir);
     }
   }
 
@@ -230,7 +248,7 @@ export default function EventTable({
                 <tr
                   className={`border-b border-[var(--border-subtle)] transition-colors duration-150 ${
                     hasErrors
-                      ? "bg-red-500/[0.08] hover:bg-red-500/[0.12]"
+                      ? "error-row-bg"
                       : "hover:bg-[var(--surface-2)]"
                   }`}
                 >

@@ -175,6 +175,14 @@ html:not(.dark) .noise::before {
   0%, 100% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.15); }
   50% { box-shadow: 0 0 16px 2px rgba(56, 189, 248, 0.10); }
 }
+/* Bug 7: Light theme override for accentPulse */
+html:not(.dark) .accent-pulse {
+  animation-name: accentPulseLight;
+}
+@keyframes accentPulseLight {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(2, 132, 199, 0.15); }
+  50% { box-shadow: 0 0 16px 2px rgba(2, 132, 199, 0.10); }
+}
 
 .animate-fade-in {
   animation: fadeIn 0.35s ease-out both;
@@ -230,6 +238,13 @@ html:not(.dark) .noise::before {
 }
 .platform-card:hover::before {
   opacity: 1;
+}
+html:not(.dark) .platform-card::before {
+  background: radial-gradient(
+    280px circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
+    rgba(2, 132, 199, 0.04),
+    transparent 60%
+  );
 }
 
 /* ─── Usecase Card ─── */
@@ -309,6 +324,21 @@ html:not(.dark) .btn-primary:hover {
 }
 .btn-primary:hover::after {
   opacity: 1;
+}
+
+/* ─── Error Row Backgrounds (light/dark mode aware) ─── */
+.error-row-bg {
+  background: rgba(239, 68, 68, 0.08);
+}
+.error-row-bg:hover {
+  background: rgba(239, 68, 68, 0.12);
+}
+html:not(.dark) .error-row-bg {
+  background: rgba(239, 68, 68, 0.06);
+  border-color: rgba(239, 68, 68, 0.15);
+}
+html:not(.dark) .error-row-bg:hover {
+  background: rgba(239, 68, 68, 0.10);
 }
 
 /* ─── Table Styles ─── */

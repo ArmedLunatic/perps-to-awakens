@@ -218,9 +218,9 @@ const ADDRESS_PATTERNS: { match: (addr: string) => boolean; platformIds: string[
   { match: (a) => a.startsWith("secret1"), platformIds: ["secret-staking"] },
   { match: (a) => a.startsWith("inj1"), platformIds: ["levana-injective"] },
   { match: (a) => /^tz[123]/.test(a), platformIds: ["tezos-staking"] },
-  { match: (a) => a.startsWith("stake1"), platformIds: ["cardano-staking"] },
-  { match: (a) => a.includes(".near") || a.includes(".testnet"), platformIds: ["near-staking"] },
-  { match: (a) => /^\d+$/.test(a) && a.length <= 10, platformIds: ["eth-validator"] },
+  { match: (a) => a.startsWith("stake1") && a.length >= 50, platformIds: ["cardano-staking"] },
+  { match: (a) => a.endsWith(".near") || a.endsWith(".testnet"), platformIds: ["near-staking"] },
+  { match: (a) => /^\d+$/.test(a) && a.length <= 10 && parseInt(a) >= 0 && parseInt(a) <= 2000000, platformIds: ["eth-validator"] },
   { match: (a) => a.startsWith("P-avax1"), platformIds: ["avalanche-staking"] },
   { match: (a) => a.startsWith("Stake"), platformIds: ["solana-staking"] },
   { match: (a) => a.startsWith("k:"), platformIds: ["kadena-mining"] },
@@ -294,6 +294,8 @@ export default function Home() {
   // ─── Preview state ───
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
+  const [sortKey, setSortKey] = useState<keyof AwakensEvent>("date");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
   // ─── Dark mode state ───
   const [darkMode, setDarkMode] = useState(true);
@@ -356,17 +358,30 @@ export default function Home() {
 
   // ─── Filtered + paginated events for preview ───
   const filteredEvents = useMemo(() => {
-    if (!searchQuery.trim()) return events;
-    const q = searchQuery.toLowerCase();
-    return events.filter(
-      (e) =>
-        e.txHash.toLowerCase().includes(q) ||
-        e.tag.toLowerCase().includes(q) ||
-        e.asset.toLowerCase().includes(q) ||
-        e.paymentToken.toLowerCase().includes(q) ||
-        e.notes.toLowerCase().includes(q)
-    );
-  }, [events, searchQuery]);
+    let result = events;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(
+        (e) =>
+          e.txHash.toLowerCase().includes(q) ||
+          e.tag.toLowerCase().includes(q) ||
+          e.asset.toLowerCase().includes(q) ||
+          e.paymentToken.toLowerCase().includes(q) ||
+          e.notes.toLowerCase().includes(q)
+      );
+    }
+    // Apply page-level sorting so sort applies across all pages
+    return [...result].sort((a, b) => {
+      const aVal = a[sortKey];
+      const bVal = b[sortKey];
+      if (typeof aVal === "number" && typeof bVal === "number") {
+        return sortDir === "asc" ? aVal - bVal : bVal - aVal;
+      }
+      const aStr = String(aVal);
+      const bStr = String(bVal);
+      return sortDir === "asc" ? aStr.localeCompare(bStr) : bStr.localeCompare(aStr);
+    });
+  }, [events, searchQuery, sortKey, sortDir]);
 
   const totalPages = Math.max(1, Math.ceil(filteredEvents.length / ITEMS_PER_PAGE));
 
@@ -455,12 +470,20 @@ export default function Home() {
     setPlatform(id);
     setPlatformSearchOpen(false);
     const plat = PLATFORMS.find((p) => p.id === id);
+
+    // If no account entered yet, show platform on detect step instead of fetching
+    if (!account.trim()) {
+      setDetectedPlatforms(PLATFORMS.filter(p => p.id === id));
+      setStep("detect");
+      setError("");
+      return;
+    }
+
     if (plat?.requiresAuth) {
       setSkipAuth(false);
       setStep("credentials");
     } else {
       setSkipAuth(true);
-      // Go directly to fetch
       fetchEventsForPlatform(id);
     }
     setError("");
@@ -511,8 +534,24 @@ export default function Home() {
       const data = await res.json();
 
       if (!res.ok) {
-        setClassifiedError(data.classified || null);
-        throw new Error(data.error || `HTTP ${res.status}`);
+        const classified: ClassifiedError | null = data.classified || null;
+        setClassifiedError(classified);
+        setError(data.error || `HTTP ${res.status}`);
+        const plat = PLATFORMS.find(p => p.id === platformId);
+        // Route based on error type, not just whether platform needs auth
+        if (classified?.type === "auth") {
+          setStep("credentials");
+        } else if (classified?.type === "validation") {
+          setStep("address");
+        } else if (classified?.type === "network" || classified?.type === "rate-limit") {
+          // Stay on current step — retry button will be shown via loading→detect fallback
+          setStep("detect");
+        } else if (plat?.requiresAuth) {
+          setStep("credentials");
+        } else {
+          setStep("detect");
+        }
+        return;
       }
 
       setEvents(data.events);
@@ -524,7 +563,7 @@ export default function Home() {
       setStep("preview");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to fetch events");
-      setStep(needsAuth ? "credentials" : "detect");
+      setStep("detect");
     }
   }
 
@@ -575,6 +614,9 @@ export default function Home() {
     setSearchQuery("");
     setCurrentPage(1);
     setSkipAuth(false);
+    setViewMode("list");
+    setSortKey("date");
+    setSortDir("asc");
   }
 
   // ─── Helpers ───
@@ -1272,6 +1314,19 @@ export default function Home() {
             </div>
           )}
 
+          {/* Search empty state */}
+          {searchQuery && filteredEvents.length === 0 && events.length > 0 && (
+            <div className="text-center py-12 px-4">
+              <div className="w-10 h-10 rounded-lg bg-[var(--surface-2)] border border-[var(--border-subtle)] flex items-center justify-center mx-auto mb-3">
+                <svg className="w-5 h-5 text-[var(--text-tertiary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                </svg>
+              </div>
+              <p className="text-sm text-[var(--text-secondary)] mb-1">No events match &ldquo;{searchQuery}&rdquo;</p>
+              <p className="text-[12px] text-[var(--text-tertiary)]">Try a different search term or clear your search.</p>
+            </div>
+          )}
+
           {/* Events display */}
           {events.length > 0 ? (
             <>
@@ -1302,7 +1357,7 @@ export default function Home() {
                         key={`${event.txHash}-${globalIndex}`}
                         className={`event-item animate-fade-in group rounded-lg border transition-all duration-200 ${
                           hasErrors
-                            ? "border-red-500/20 bg-red-500/[0.08]"
+                            ? darkMode ? "border-red-500/20 bg-red-500/[0.08]" : "border-red-300/40 bg-red-50"
                             : "border-[var(--border-subtle)] hover:border-[var(--border-medium)] bg-[var(--surface-1)]"
                         }`}
                       >
@@ -1375,7 +1430,15 @@ export default function Home() {
 
               {/* Table view */}
               {viewMode === "table" && (
-                <EventTable events={paginatedEvents} validationErrors={validationErrors} platformMode={platformMode} />
+                <EventTable
+                  events={paginatedEvents}
+                  validationErrors={validationErrors}
+                  platformMode={platformMode}
+                  pageOffset={(currentPage - 1) * ITEMS_PER_PAGE}
+                  pageSortKey={sortKey}
+                  pageSortDir={sortDir}
+                  onPageSort={(key, dir) => { setSortKey(key); setSortDir(dir); }}
+                />
               )}
 
               {/* Bottom pagination */}
