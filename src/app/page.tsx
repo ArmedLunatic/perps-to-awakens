@@ -84,6 +84,61 @@ export default function Home() {
 
   const allReadyPlatforms = useMemo(() => PLATFORMS.filter((p) => p.ready), []);
 
+  // ─── Address format detection ───
+  const addressHint = useMemo(() => {
+    const addr = account.trim();
+    if (addr.length < 8) return null;
+    const detected = detectPlatformsForAddress(addr);
+    // Derive format name from prefix
+    let format: string | null = null;
+    if (addr.startsWith("0x")) format = "EVM";
+    else if (addr.startsWith("cosmos1")) format = "Cosmos";
+    else if (addr.startsWith("osmo1")) format = "Osmosis";
+    else if (addr.startsWith("juno1")) format = "Juno";
+    else if (addr.startsWith("stars1")) format = "Stargaze";
+    else if (addr.startsWith("terra1")) format = "Terra";
+    else if (addr.startsWith("sei1")) format = "Sei";
+    else if (addr.startsWith("inj1")) format = "Injective";
+    else if (addr.startsWith("tz1") || addr.startsWith("tz2") || addr.startsWith("tz3") || addr.startsWith("KT1")) format = "Tezos";
+    else if (addr.startsWith("stake1") || addr.startsWith("addr1")) format = "Cardano";
+    else if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(addr)) format = "Solana/Base58";
+    else if (/^[0-9a-f]{64}$/i.test(addr)) format = "Substrate/Hex";
+    else if (detected.length > 0) format = "Detected";
+    if (format && detected.length > 0) {
+      return { match: true, format, count: detected.length };
+    }
+    return { match: false, format: null, count: 0 };
+  }, [account]);
+
+  // ─── Summary statistics for preview ───
+  const summaryStats = useMemo(() => {
+    if (events.length === 0) return null;
+    // Date range
+    const dates = events.map((e) => e.date);
+    const earliest = dates[0] || "";
+    const latest = dates[dates.length - 1] || "";
+    // Unique assets
+    const assets = new Set(events.map((e) => e.asset));
+    // Tag breakdown
+    const tagCounts: Record<string, number> = {};
+    events.forEach((e) => { tagCounts[e.tag] = (tagCounts[e.tag] || 0) + 1; });
+    // Total fees
+    const totalFees = events.reduce((sum, e) => sum + e.fee, 0);
+    return { earliest, latest, assetCount: assets.size, tagCounts, totalFees };
+  }, [events]);
+
+  // ─── Wizard back-navigation handler ───
+  function handleWizardNavigate(targetStep: Step) {
+    const STEP_ORDER: Step[] = ["address", "detect", "credentials", "loading", "preview"];
+    const currentIndex = STEP_ORDER.indexOf(step);
+    const targetIndex = STEP_ORDER.indexOf(targetStep);
+    // Only allow backward navigation
+    if (targetIndex < currentIndex) {
+      clearError();
+      setStep(targetStep);
+    }
+  }
+
   // ─── Filtered + paginated events for preview ───
   // Compute available years from events for dropdown
   const availableYears = useMemo(() => {
@@ -204,6 +259,19 @@ export default function Home() {
   function proceedToDetect() {
     const addr = account.trim();
     if (!addr) return;
+    // If a platform was pre-selected via quick-start, skip detection
+    if (platform) {
+      const plat = PLATFORMS.find((p) => p.id === platform);
+      if (plat?.requiresAuth) {
+        setSkipAuth(false);
+        setStep("credentials");
+      } else {
+        setSkipAuth(true);
+        fetchEventsForPlatform(platform);
+      }
+      clearError();
+      return;
+    }
     const detected = detectPlatformsForAddress(addr);
     setDetectedPlatforms(detected);
     setStep("detect");
@@ -544,7 +612,7 @@ export default function Home() {
 
       {/* ─── Step indicator ─── */}
       {step !== "address" && (
-        <WizardStepIndicator currentStep={step} skipAuth={skipAuth} />
+        <WizardStepIndicator currentStep={step} skipAuth={skipAuth} onNavigate={handleWizardNavigate} />
       )}
 
       {/* ─── Error display ─── */}
@@ -569,6 +637,38 @@ export default function Home() {
                   We export only protocol-defined accounting events. When data is ambiguous or incomplete, we block the export to prevent accounting errors.
                 </p>
               </div>
+            </div>
+          </div>
+
+          {/* Quick-start chips */}
+          <div className="max-w-lg mb-6">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-[10px] font-mono font-medium tracking-widest uppercase text-[var(--text-tertiary)]">Quick Start</span>
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-[var(--accent-dim)] text-[var(--accent)] border border-[var(--accent-border)]">
+                {allReadyPlatforms.length} platforms across perps, staking, and L1s
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-2 mb-5">
+              {[
+                { id: "hyperliquid", label: "Hyperliquid Trades" },
+                { id: "polkadot", label: "Polkadot Staking" },
+                { id: "cosmoshub", label: "Cosmos Rewards" },
+              ].map((chip) => (
+                <button
+                  key={chip.id}
+                  onClick={() => {
+                    setPlatform(chip.id);
+                    addressInputRef.current?.focus();
+                  }}
+                  className={`px-3 py-1.5 rounded-md text-[12px] font-medium border transition-all duration-200 ${
+                    platform === chip.id
+                      ? "bg-[var(--accent-dim)] text-[var(--accent)] border-[var(--accent-border)]"
+                      : "bg-[var(--surface-2)] text-[var(--text-secondary)] border-[var(--border-subtle)] hover:border-[var(--accent-border)] hover:text-[var(--accent)]"
+                  }`}
+                >
+                  {chip.label}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -600,6 +700,19 @@ export default function Home() {
                 <span className="relative z-10">Continue</span>
               </button>
             </div>
+            {/* Address format hint */}
+            {addressHint && (
+              <div className="mt-2.5 flex items-center gap-2 text-[12px] animate-fade-in">
+                <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${addressHint.match ? "bg-[var(--accent)]" : "bg-amber-400"}`} />
+                {addressHint.match ? (
+                  <span className="text-[var(--text-secondary)]">
+                    Looks like a <span className="text-[var(--accent)] font-medium">{addressHint.format}</span> address — {addressHint.count} platform{addressHint.count !== 1 ? "s" : ""} available
+                  </span>
+                ) : (
+                  <span className="text-amber-400/80">Format not recognized — browse platforms manually</span>
+                )}
+              </div>
+            )}
             <div className="mt-4 flex items-center gap-4">
               <button
                 onClick={() => setPlatformSearchOpen(true)}
@@ -625,56 +738,67 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Explicit Refusals with tooltips */}
-          <div className="mb-10 p-5 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)]">
-            <div className="flex items-center gap-2 mb-4">
-              <span className="text-[10px] font-mono font-medium tracking-widest uppercase text-[var(--text-tertiary)]">What This Tool Will Never Do</span>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-2.5">
-              {Object.entries(REFUSAL_TOOLTIPS).map(([item, tooltip], i) => (
-                <div key={i} className="group/tip relative flex items-center gap-2.5 text-[12px] text-[var(--text-secondary)]">
-                  <div className="w-1 h-1 rounded-full bg-[var(--text-tertiary)] flex-shrink-0" />
-                  <span className="cursor-help border-b border-dotted border-[var(--border-medium)]">{item}</span>
-                  <div className="absolute left-0 bottom-full mb-2 hidden group-hover/tip:block z-20 max-w-xs px-3 py-2 text-[11px] text-[var(--text-primary)] bg-[var(--surface-3)] border border-[var(--border-medium)] rounded-lg shadow-2xl shadow-black/30 pointer-events-none leading-relaxed">
-                    {tooltip}
-                  </div>
+          {/* Correctness guarantees & eligibility (collapsed) */}
+          <details className="mb-10 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] group/details">
+            <summary className="flex items-center gap-2.5 px-5 py-4 cursor-pointer select-none list-none">
+              <svg className="w-3.5 h-3.5 text-[var(--text-tertiary)] transition-transform duration-200 group-open/details:rotate-90 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+              </svg>
+              <span className="text-[13px] font-semibold text-[var(--text-primary)]">How it works</span>
+              <span className="text-[11px] text-[var(--text-tertiary)]">— Correctness guarantees & eligibility</span>
+            </summary>
+            <div className="px-5 pb-5 pt-1 border-t border-[var(--border-subtle)]">
+              {/* Refusals */}
+              <div className="mb-6 mt-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="text-[10px] font-mono font-medium tracking-widest uppercase text-[var(--text-tertiary)]">What This Tool Will Never Do</span>
                 </div>
-              ))}
-            </div>
-            <p className="mt-4 text-[11px] text-[var(--text-tertiary)] leading-relaxed">
-              Skipped for accuracy — inferred events are blocked to avoid audit risk.
-            </p>
-          </div>
-
-          {/* Eligibility criteria */}
-          <div className="mb-10">
-            <div className="flex items-center gap-2 mb-5">
-              <span className="text-[10px] font-mono font-medium tracking-widest uppercase text-[var(--text-tertiary)]">Eligibility Criteria</span>
-              <div className="flex-1 h-px bg-[var(--border-subtle)]" />
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-              {[
-                { label: "Protocol emits explicit accounting events", description: "Rewards, penalties, and trades must be emitted as discrete protocol events — not derived from state." },
-                { label: "Actor and amount are explicit", description: "The recipient and the value must be unambiguously defined in the event, not inferred from balance changes." },
-                { label: "No balance inference required", description: "If determining a reward requires comparing balances across blocks, the chain is ineligible." },
-                { label: "Deterministic replay possible", description: "Given the same inputs, the same events must be produced every time. No dependency on external state." },
-              ].map((criterion, i) => (
-                <div key={i} className="p-4 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)]">
-                  <div className="flex items-start gap-3">
-                    <div className="w-5 h-5 rounded-full bg-[var(--accent-dim)] flex items-center justify-center flex-shrink-0 mt-0.5">
-                      <svg className="w-3 h-3 text-[var(--accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                      </svg>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-2.5">
+                  {Object.entries(REFUSAL_TOOLTIPS).map(([item, tooltip], i) => (
+                    <div key={i} className="group/tip relative flex items-center gap-2.5 text-[12px] text-[var(--text-secondary)]">
+                      <div className="w-1 h-1 rounded-full bg-[var(--text-tertiary)] flex-shrink-0" />
+                      <span className="cursor-help border-b border-dotted border-[var(--border-medium)]">{item}</span>
+                      <div className="absolute left-0 bottom-full mb-2 hidden group-hover/tip:block z-20 max-w-xs px-3 py-2 text-[11px] text-[var(--text-primary)] bg-[var(--surface-3)] border border-[var(--border-medium)] rounded-lg shadow-2xl shadow-black/30 pointer-events-none leading-relaxed">
+                        {tooltip}
+                      </div>
                     </div>
-                    <div>
-                      <div className="text-[12px] font-semibold text-[var(--text-primary)] mb-0.5 leading-snug">{criterion.label}</div>
-                      <div className="text-[11px] text-[var(--text-tertiary)] leading-relaxed">{criterion.description}</div>
-                    </div>
-                  </div>
+                  ))}
                 </div>
-              ))}
+                <p className="mt-3 text-[11px] text-[var(--text-tertiary)] leading-relaxed">
+                  Skipped for accuracy — inferred events are blocked to avoid audit risk.
+                </p>
+              </div>
+              {/* Eligibility criteria */}
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="text-[10px] font-mono font-medium tracking-widest uppercase text-[var(--text-tertiary)]">Eligibility Criteria</span>
+                  <div className="flex-1 h-px bg-[var(--border-subtle)]" />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {[
+                    { label: "Protocol emits explicit accounting events", description: "Rewards, penalties, and trades must be emitted as discrete protocol events — not derived from state." },
+                    { label: "Actor and amount are explicit", description: "The recipient and the value must be unambiguously defined in the event, not inferred from balance changes." },
+                    { label: "No balance inference required", description: "If determining a reward requires comparing balances across blocks, the chain is ineligible." },
+                    { label: "Deterministic replay possible", description: "Given the same inputs, the same events must be produced every time. No dependency on external state." },
+                  ].map((criterion, i) => (
+                    <div key={i} className="p-4 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-2)]">
+                      <div className="flex items-start gap-3">
+                        <div className="w-5 h-5 rounded-full bg-[var(--accent-dim)] flex items-center justify-center flex-shrink-0 mt-0.5">
+                          <svg className="w-3 h-3 text-[var(--accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                          </svg>
+                        </div>
+                        <div>
+                          <div className="text-[12px] font-semibold text-[var(--text-primary)] mb-0.5 leading-snug">{criterion.label}</div>
+                          <div className="text-[11px] text-[var(--text-tertiary)] leading-relaxed">{criterion.description}</div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
-          </div>
+          </details>
         </div>
       )}
 
@@ -999,20 +1123,70 @@ export default function Home() {
               <button
                 onClick={downloadCSV}
                 disabled={validationErrors.length > 0}
-                className="group btn-primary relative px-4 py-2 text-[12px] font-semibold bg-[var(--accent)] text-white rounded-md hover:brightness-110 disabled:opacity-20 disabled:cursor-not-allowed transition-all duration-200"
+                title="Awakens-compatible format"
+                className="group btn-primary relative px-5 py-2.5 text-[13px] font-semibold bg-[var(--accent)] text-white rounded-lg hover:brightness-110 disabled:opacity-20 disabled:cursor-not-allowed transition-all duration-200 flex items-center gap-2"
               >
+                <svg className="w-4 h-4 relative z-10" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                </svg>
                 <span className="relative z-10">Export CSV</span>
               </button>
               {/* JSON export */}
               <button
                 onClick={downloadJSON}
                 disabled={validationErrors.length > 0}
-                className="px-4 py-2 text-[12px] font-semibold border border-[var(--accent-border)] text-[var(--accent)] rounded-md hover:bg-[var(--accent-dim)] disabled:opacity-20 disabled:cursor-not-allowed transition-all duration-200"
+                className="px-3 py-2 text-[11px] font-medium border border-[var(--border-subtle)] text-[var(--text-tertiary)] rounded-md hover:bg-[var(--surface-2)] hover:text-[var(--text-secondary)] disabled:opacity-20 disabled:cursor-not-allowed transition-all duration-200"
               >
-                Export JSON
+                JSON
               </button>
             </div>
           </div>
+
+          {/* Summary statistics */}
+          {summaryStats && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 animate-fade-in">
+              <div className="p-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)]">
+                <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--text-tertiary)] mb-1">Date Range</div>
+                <div className="text-[12px] font-mono text-[var(--text-secondary)] leading-snug">
+                  {summaryStats.earliest.split(" ")[0] || "—"}
+                  <span className="text-[var(--text-tertiary)]"> — </span>
+                  {summaryStats.latest.split(" ")[0] || "—"}
+                </div>
+              </div>
+              <div className="p-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)]">
+                <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--text-tertiary)] mb-1">Assets</div>
+                <div className="text-[12px] font-mono text-[var(--text-secondary)]">
+                  <span className="text-[var(--accent)] font-bold text-sm">{summaryStats.assetCount}</span> unique
+                </div>
+              </div>
+              <div className="p-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)]">
+                <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--text-tertiary)] mb-1">Tags</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {Object.entries(summaryStats.tagCounts).map(([tag, count]) => {
+                    const dotColors: Record<string, string> = {
+                      open_position: "bg-blue-400",
+                      close_position: "bg-teal-400",
+                      funding_payment: "bg-amber-400",
+                      staking_reward: "bg-violet-400",
+                      slashing: "bg-rose-400",
+                    };
+                    return (
+                      <span key={tag} className="inline-flex items-center gap-1 text-[10px] font-mono text-[var(--text-tertiary)]">
+                        <span className={`w-1.5 h-1.5 rounded-full ${dotColors[tag] || "bg-zinc-500"}`} />
+                        {count}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="p-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)]">
+                <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--text-tertiary)] mb-1">Total Fees</div>
+                <div className="text-[12px] font-mono text-[var(--text-secondary)]">
+                  {summaryStats.totalFees.toFixed(8).replace(/\.?0+$/, "") || "0"}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Truncation warning */}
           {truncated && (

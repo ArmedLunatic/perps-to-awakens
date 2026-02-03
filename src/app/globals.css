@@ -282,6 +282,12 @@ html:not(.dark) .event-item[open] summary {
 .event-item summary::-webkit-details-marker {
   display: none;
 }
+details summary::-webkit-details-marker {
+  display: none;
+}
+details summary::marker {
+  display: none;
+}
 
 /* ─── Shimmer loading ─── */
 .shimmer {
