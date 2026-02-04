@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { ToastProvider } from "@/components/Toast";
 
 export const metadata: Metadata = {
   title: "Accounting Event Exporter — Awakens",
@@ -13,7 +14,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: `(function(){try{var t=localStorage.getItem('theme');document.documentElement.classList.toggle('dark',t!=='light')}catch(e){document.documentElement.classList.add('dark')}})()` }} />
       </head>
       <body className="noise bg-[var(--surface-0)] text-[var(--text-primary)] antialiased min-h-screen ledger-bg">
-        {children}
+        <ToastProvider>{children}</ToastProvider>
       </body>
     </html>
   );

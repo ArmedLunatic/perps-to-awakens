@@ -9,6 +9,7 @@ import CommandPalette from "@/components/CommandPalette";
 import ErrorAlert from "@/components/ErrorAlert";
 import WizardStepIndicator from "@/components/WizardStepIndicator";
 import LoadingStep from "@/components/LoadingStep";
+import { useToast } from "@/components/Toast";
 import {
   PLATFORMS,
   PLATFORM_MODES,
@@ -67,6 +68,18 @@ export default function Home() {
   // ─── Post-export guidance state ───
   const [showImportGuide, setShowImportGuide] = useState(false);
 
+  // ─── Toast ───
+  const { toast } = useToast();
+
+  // ─── "How it works" first-visit state ───
+  const [howItWorksSeen, setHowItWorksSeen] = useState(false);
+
+  // ─── Start Over confirmation ───
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+
+  // ─── Import guide "don't show again" ───
+  const [importGuideDismissed, setImportGuideDismissed] = useState(false);
+
   // ─── Command palette state ───
   const [platformSearchOpen, setPlatformSearchOpen] = useState(false);
   const addressInputRef = useRef<HTMLInputElement>(null);
@@ -86,6 +99,17 @@ export default function Home() {
   const platformDoc = PLATFORM_DOCS[platform];
 
   const allReadyPlatforms = useMemo(() => PLATFORMS.filter((p) => p.ready), []);
+
+  // ─── Platform family counts for landing summary ───
+  const familySummary = useMemo(() => {
+    const counts: Record<string, number> = {};
+    allReadyPlatforms.forEach((p) => {
+      const fam = p.family || "other";
+      const label = fam.includes("perps") ? "perps" : fam.includes("substrate") ? "substrate" : fam.includes("cosmos") ? "cosmos" : "other";
+      counts[label] = (counts[label] || 0) + 1;
+    });
+    return counts;
+  }, [allReadyPlatforms]);
 
   // ─── Address format detection ───
   const addressHint = useMemo(() => {
@@ -112,23 +136,6 @@ export default function Home() {
     }
     return { match: false, format: null, count: 0 };
   }, [account]);
-
-  // ─── Summary statistics for preview ───
-  const summaryStats = useMemo(() => {
-    if (events.length === 0) return null;
-    // Date range
-    const dates = events.map((e) => e.date);
-    const earliest = dates[0] || "";
-    const latest = dates[dates.length - 1] || "";
-    // Unique assets
-    const assets = new Set(events.map((e) => e.asset));
-    // Tag breakdown
-    const tagCounts: Record<string, number> = {};
-    events.forEach((e) => { tagCounts[e.tag] = (tagCounts[e.tag] || 0) + 1; });
-    // Total fees
-    const totalFees = events.reduce((sum, e) => sum + e.fee, 0);
-    return { earliest, latest, assetCount: assets.size, tagCounts, totalFees };
-  }, [events]);
 
   // ─── Wizard back-navigation handler ───
   function handleWizardNavigate(targetStep: Step) {
@@ -207,10 +214,12 @@ export default function Home() {
     setCurrentPage(1);
   }, [searchQuery, filterYear]);
 
-  // ─── Dark mode initialization ───
+  // ─── Dark mode + localStorage initialization ───
   useEffect(() => {
     const stored = localStorage.getItem("theme");
     setDarkMode(stored !== "light");
+    setHowItWorksSeen(localStorage.getItem("howItWorksSeen") === "true");
+    setImportGuideDismissed(localStorage.getItem("importGuideDismissed") === "true");
   }, []);
 
   function toggleDarkMode() {
@@ -242,20 +251,29 @@ export default function Home() {
     }
   }, [step]);
 
-  // Global Ctrl+K to open palette (available on address and detect steps)
+  // Stable ref for export function (used in keyboard shortcut)
+  const downloadCSVRef = useRef(downloadCSV);
+  useEffect(() => { downloadCSVRef.current = downloadCSV; });
+
+  // Global Ctrl+K to open palette (available on all steps)
   useEffect(() => {
     function handleGlobalKey(e: KeyboardEvent) {
       if ((e.ctrlKey || e.metaKey) && e.key === "k") {
         e.preventDefault();
-        if (step === "address" || step === "detect") setPlatformSearchOpen((prev) => !prev);
+        setPlatformSearchOpen((prev) => !prev);
       }
       if (e.key === "Escape" && platformSearchOpen) {
         setPlatformSearchOpen(false);
       }
+      // Ctrl+Shift+E to export CSV on preview step
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "E" && step === "preview" && validationErrors.length === 0) {
+        e.preventDefault();
+        downloadCSVRef.current();
+      }
     }
     document.addEventListener("keydown", handleGlobalKey);
     return () => document.removeEventListener("keydown", handleGlobalKey);
-  }, [step, platformSearchOpen]);
+  }, [step, platformSearchOpen, validationErrors.length]);
 
   // ─── Actions ───
 
@@ -282,6 +300,10 @@ export default function Home() {
   }
 
   function selectPlatform(id: string) {
+    // If selecting from preview step, reset first then re-enter flow
+    if (step === "preview") {
+      reset();
+    }
     setPlatform(id);
     setPlatformSearchOpen(false);
     const plat = PLATFORMS.find((p) => p.id === id);
@@ -510,6 +532,19 @@ export default function Home() {
     });
   }, [events, filterYear]);
 
+  // ─── Summary statistics for preview (year-aware via exportEvents) ───
+  const summaryStats = useMemo(() => {
+    if (exportEvents.length === 0) return null;
+    const dates = exportEvents.map((e) => e.date);
+    const earliest = dates[0] || "";
+    const latest = dates[dates.length - 1] || "";
+    const assets = new Set(exportEvents.map((e) => e.asset));
+    const tagCounts: Record<string, number> = {};
+    exportEvents.forEach((e) => { tagCounts[e.tag] = (tagCounts[e.tag] || 0) + 1; });
+    const totalFees = exportEvents.reduce((sum, e) => sum + e.fee, 0);
+    return { earliest, latest, assetCount: assets.size, tagCounts, totalFees };
+  }, [exportEvents]);
+
   function downloadCSV() {
     try {
       const csv = generateCSV(exportEvents);
@@ -522,7 +557,8 @@ export default function Home() {
       a.download = `${prefix}-awakens${yearSuffix}-${Date.now()}.csv`;
       a.click();
       URL.revokeObjectURL(url);
-      setShowImportGuide(true);
+      toast("CSV downloaded");
+      if (!importGuideDismissed) setShowImportGuide(true);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "CSV generation failed");
     }
@@ -532,6 +568,7 @@ export default function Home() {
     try {
       const csv = generateCSV(exportEvents);
       navigator.clipboard.writeText(csv);
+      toast("Copied to clipboard");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "CSV generation failed");
     }
@@ -549,6 +586,7 @@ export default function Home() {
     a.download = `${prefix}-awakens${yearSuffix}-${Date.now()}.json`;
     a.click();
     URL.revokeObjectURL(url);
+    toast("JSON downloaded");
   }
 
   function reset() {
@@ -576,6 +614,7 @@ export default function Home() {
     setBatchMode(false);
     setBatchProgress({});
     setShowImportGuide(false);
+    setShowResetConfirm(false);
   }
 
   // ─── Helpers ───
@@ -667,10 +706,10 @@ export default function Home() {
               {[
                 { id: "hyperliquid", label: "Hyperliquid Trades" },
                 { id: "dydx", label: "dYdX Perps" },
-                { id: "polkadot", label: "Polkadot Staking" },
-                { id: "cosmoshub", label: "Cosmos Rewards" },
-                { id: "tezos", label: "Tezos Baking" },
-                { id: "near", label: "NEAR Staking" },
+                { id: "polkadot-staking", label: "Polkadot Staking" },
+                { id: "cosmos-hub-staking", label: "Cosmos Rewards" },
+                { id: "tezos-staking", label: "Tezos Baking" },
+                { id: "near-staking", label: "NEAR Staking" },
               ].map((chip) => (
                 <button
                   key={chip.id}
@@ -687,6 +726,9 @@ export default function Home() {
                   {chip.label}
                 </button>
               ))}
+            </div>
+            <div className="text-[11px] font-mono text-[var(--text-tertiary)]">
+              {familySummary.perps ? `${familySummary.perps} perps` : ""}{familySummary.perps && familySummary.substrate ? " · " : ""}{familySummary.substrate ? `${familySummary.substrate} substrate` : ""}{(familySummary.perps || familySummary.substrate) && familySummary.cosmos ? " · " : ""}{familySummary.cosmos ? `${familySummary.cosmos} cosmos` : ""}{(familySummary.perps || familySummary.substrate || familySummary.cosmos) && familySummary.other ? " · " : ""}{familySummary.other ? `${familySummary.other} other chains` : ""}
             </div>
           </div>
 
@@ -705,7 +747,7 @@ export default function Home() {
                 value={account}
                 onChange={(e) => setAccount(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && proceedToDetect()}
-                placeholder="0x..., cosmos1..., stake1..., tz1..."
+                placeholder={currentPlatform?.placeholder || "0x..., cosmos1..., stake1..., tz1..."}
                 spellCheck={false}
                 autoComplete="off"
                 className="flex-1 px-4 py-3.5 bg-[var(--surface-2)] border border-[var(--border-medium)] rounded-lg font-mono text-sm text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] focus:border-[var(--accent-border)] placeholder:text-[var(--text-tertiary)] transition-all duration-200"
@@ -756,8 +798,17 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Correctness guarantees & eligibility (collapsed) */}
-          <details className="mb-10 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] group/details">
+          {/* Correctness guarantees & eligibility (open on first visit) */}
+          <details
+            open={!howItWorksSeen}
+            onToggle={(e) => {
+              if (!(e.currentTarget as HTMLDetailsElement).open && !howItWorksSeen) {
+                setHowItWorksSeen(true);
+                localStorage.setItem("howItWorksSeen", "true");
+              }
+            }}
+            className="mb-10 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] group/details"
+          >
             <summary className="flex items-center gap-2.5 px-5 py-4 cursor-pointer select-none list-none">
               <svg className="w-3.5 h-3.5 text-[var(--text-tertiary)] transition-transform duration-200 group-open/details:rotate-90 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
@@ -1110,7 +1161,7 @@ export default function Home() {
                 );
               })()}
             </div>
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-2 flex-wrap export-actions">
               {/* View toggle */}
               <div className="flex rounded-md border border-[var(--border-subtle)] bg-[var(--surface-1)] overflow-hidden">
                 <button
@@ -1131,12 +1182,35 @@ export default function Home() {
                   Table
                 </button>
               </div>
-              <button
-                onClick={reset}
-                className="px-3.5 py-1.5 text-[12px] font-medium border border-[var(--border-subtle)] rounded-md text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-2)] transition-all duration-200"
-              >
-                Start Over
-              </button>
+              <div className="relative">
+                <button
+                  onClick={() => events.length > 0 ? setShowResetConfirm(true) : reset()}
+                  className="px-3.5 py-1.5 text-[12px] font-medium border border-[var(--border-subtle)] rounded-md text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-2)] transition-all duration-200"
+                >
+                  Start Over
+                </button>
+                {showResetConfirm && (
+                  <div className="absolute top-full mt-2 right-0 z-50 p-4 rounded-lg border border-[var(--border-medium)] bg-[var(--surface-1)] shadow-2xl shadow-black/30 animate-drop-in min-w-[240px]">
+                    <p className="text-[12px] text-[var(--text-primary)] font-medium mb-3">
+                      Discard {exportEvents.length} event{exportEvents.length !== 1 ? "s" : ""} and start over?
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => { setShowResetConfirm(false); reset(); }}
+                        className="px-3 py-1.5 text-[11px] font-semibold bg-red-500/90 text-white rounded-md hover:bg-red-500 transition-colors"
+                      >
+                        Confirm
+                      </button>
+                      <button
+                        onClick={() => setShowResetConfirm(false)}
+                        className="px-3 py-1.5 text-[11px] font-medium text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
               {/* CSV export */}
               <button
                 onClick={downloadCSV}
@@ -1148,6 +1222,7 @@ export default function Home() {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
                 </svg>
                 <span className="relative z-10">Export CSV</span>
+                <kbd className="hidden sm:inline-flex palette-kbd text-[9px] px-1 relative z-10 ml-1 opacity-70">Ctrl+Shift+E</kbd>
               </button>
               {/* Copy CSV to clipboard */}
               <button
@@ -1199,6 +1274,18 @@ export default function Home() {
                   <div className="mt-3 text-[11px] text-emerald-400/60">
                     CSV columns: Date, Asset, Amount, Fee, P&amp;L, Payment Token, Notes, Transaction Hash, Tag
                   </div>
+                  <label className="mt-3 flex items-center gap-2 text-[11px] text-emerald-400/60 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={importGuideDismissed}
+                      onChange={(e) => {
+                        setImportGuideDismissed(e.target.checked);
+                        localStorage.setItem("importGuideDismissed", e.target.checked ? "true" : "");
+                      }}
+                      className="w-3 h-3 rounded border-emerald-500/30 bg-transparent text-emerald-500 focus:ring-0"
+                    />
+                    Don&apos;t show again
+                  </label>
                 </div>
               </div>
             </div>
@@ -1371,10 +1458,10 @@ export default function Home() {
             <p className="font-mono text-[12px] text-[var(--text-secondary)] tracking-widest uppercase mb-3">Export Integrity</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-2.5">
               {[
-                "Protocol-defined accounting events only",
-                "No inferred balances or P&L",
-                "Deterministic & replayable exports",
-                "Ambiguous activity blocked by design",
+                "Every row traces to a real on-chain transaction",
+                "No estimated or guessed values — only explicit data",
+                "Re-run anytime, get the exact same CSV",
+                "Unclear data is blocked, not approximated",
               ].map((claim, i) => (
                 <div key={i} className="flex items-start gap-2 text-[11px] text-[var(--text-tertiary)] leading-snug">
                   <span className="mt-[5px] block w-1 h-1 rounded-full bg-[var(--text-tertiary)] opacity-60 shrink-0" />
@@ -1423,7 +1510,7 @@ export default function Home() {
                 <select
                   value={filterYear}
                   onChange={(e) => setFilterYear(e.target.value)}
-                  className="px-3 py-2 bg-[var(--surface-2)] border border-[var(--border-medium)] rounded-md font-mono text-xs text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] focus:border-[var(--accent-border)] transition-all duration-200"
+                  className={`px-3 py-2 bg-[var(--surface-2)] border rounded-md font-mono text-xs text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] focus:border-[var(--accent-border)] transition-all duration-200 ${filterYear !== "all" ? "year-filter-active" : "border-[var(--border-medium)]"}`}
                 >
                   <option value="all">All years ({events.length})</option>
                   {availableYears.map((year) => {
@@ -1482,6 +1569,13 @@ export default function Home() {
                   </div>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* Search disambiguation note */}
+          {searchQuery && filteredEvents.length > 0 && (
+            <div className="text-[11px] font-mono text-[var(--text-tertiary)] animate-fade-in">
+              Search filters the preview only. Export includes all {exportEvents.length} event{exportEvents.length !== 1 ? "s" : ""}.
             </div>
           )}
 

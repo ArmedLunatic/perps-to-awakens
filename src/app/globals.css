@@ -657,4 +657,72 @@ html.dark .theme-toggle::after {
   .step-indicator-wrap::-webkit-scrollbar {
     display: none;
   }
+  .export-actions {
+    flex-direction: column;
+    width: 100%;
+  }
+  .export-actions > * {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* ─── Toast Notifications ─── */
+.toast-container {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+.toast-item {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid;
+  font-family: var(--font-sans);
+  min-width: 260px;
+  max-width: 380px;
+  box-shadow: 0 8px 30px -6px rgba(0, 0, 0, 0.4);
+  opacity: 0;
+  transform: translateX(12px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.toast-item.toast-visible {
+  opacity: 1;
+  transform: translateX(0);
+}
+.toast-success {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.25);
+  color: #34d399;
+}
+.toast-error {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.25);
+  color: #f87171;
+}
+html:not(.dark) .toast-success {
+  background: rgba(16, 185, 129, 0.08);
+  border-color: rgba(16, 185, 129, 0.2);
+  color: #059669;
+  box-shadow: 0 8px 30px -6px rgba(0, 0, 0, 0.1);
+}
+html:not(.dark) .toast-error {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.2);
+  color: #dc2626;
+  box-shadow: 0 8px 30px -6px rgba(0, 0, 0, 0.1);
+}
+
+/* ─── Year Filter Active Highlight ─── */
+.year-filter-active {
+  border-color: var(--accent-border) !important;
+  box-shadow: 0 0 0 1px var(--accent-border);
 }
