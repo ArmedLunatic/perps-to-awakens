@@ -64,6 +64,9 @@ export default function Home() {
   const [batchMode, setBatchMode] = useState(false);
   const [batchProgress, setBatchProgress] = useState<Record<string, "pending" | "loading" | "done" | "error">>({});
 
+  // ─── Post-export guidance state ───
+  const [showImportGuide, setShowImportGuide] = useState(false);
+
   // ─── Command palette state ───
   const [platformSearchOpen, setPlatformSearchOpen] = useState(false);
   const addressInputRef = useRef<HTMLInputElement>(null);
@@ -519,6 +522,16 @@ export default function Home() {
       a.download = `${prefix}-awakens${yearSuffix}-${Date.now()}.csv`;
       a.click();
       URL.revokeObjectURL(url);
+      setShowImportGuide(true);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "CSV generation failed");
+    }
+  }
+
+  function copyCSVToClipboard() {
+    try {
+      const csv = generateCSV(exportEvents);
+      navigator.clipboard.writeText(csv);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "CSV generation failed");
     }
@@ -562,6 +575,7 @@ export default function Home() {
     setBatchResults({});
     setBatchMode(false);
     setBatchProgress({});
+    setShowImportGuide(false);
   }
 
   // ─── Helpers ───
@@ -600,12 +614,13 @@ export default function Home() {
             />
           </div>
           <h1 className="text-3xl sm:text-[2.5rem] font-bold tracking-[-0.03em] text-[var(--text-primary)] mb-1 leading-[1.15]">
-            Accounting Event<br className="hidden sm:block" /> Exporter
+            Export to<br className="hidden sm:block" /> Awaken Tax
           </h1>
           <div className="w-12 h-[2px] bg-gradient-to-r from-[var(--accent)] to-transparent rounded-full mb-4" />
           <p className="text-[15px] text-[var(--text-secondary)] leading-relaxed max-w-xl">
-            Export protocol-defined accounting events into Awakens-compatible CSV.
-            Only events explicitly emitted by the protocol are included.
+            Companion tool for{" "}
+            <a href="https://awaken.tax" target="_blank" rel="noopener noreferrer" className="text-[var(--accent)] hover:underline">Awaken Tax</a>.
+            Exports provable on-chain events as Awaken-compatible CSV — ready to import.
           </p>
         </div>
       </div>
@@ -651,8 +666,11 @@ export default function Home() {
             <div className="flex flex-wrap gap-2 mb-5">
               {[
                 { id: "hyperliquid", label: "Hyperliquid Trades" },
+                { id: "dydx", label: "dYdX Perps" },
                 { id: "polkadot", label: "Polkadot Staking" },
                 { id: "cosmoshub", label: "Cosmos Rewards" },
+                { id: "tezos", label: "Tezos Baking" },
+                { id: "near", label: "NEAR Staking" },
               ].map((chip) => (
                 <button
                   key={chip.id}
@@ -1131,6 +1149,18 @@ export default function Home() {
                 </svg>
                 <span className="relative z-10">Export CSV</span>
               </button>
+              {/* Copy CSV to clipboard */}
+              <button
+                onClick={copyCSVToClipboard}
+                disabled={validationErrors.length > 0}
+                title="Copy CSV to clipboard"
+                className="px-3 py-2 text-[11px] font-medium border border-[var(--border-subtle)] text-[var(--text-tertiary)] rounded-md hover:bg-[var(--surface-2)] hover:text-[var(--text-secondary)] disabled:opacity-20 disabled:cursor-not-allowed transition-all duration-200 flex items-center gap-1.5"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
+                </svg>
+                Copy
+              </button>
               {/* JSON export */}
               <button
                 onClick={downloadJSON}
@@ -1141,6 +1171,68 @@ export default function Home() {
               </button>
             </div>
           </div>
+
+          {/* Post-export: Import into Awaken Tax guidance */}
+          {showImportGuide && (
+            <div className="p-5 rounded-lg border border-emerald-500/20 bg-emerald-500/[0.06] animate-fade-in relative">
+              <button
+                onClick={() => setShowImportGuide(false)}
+                className="absolute top-3 right-3 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
+              >
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                </svg>
+              </button>
+              <div className="flex items-start gap-3">
+                <div className="w-6 h-6 rounded-full bg-emerald-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <svg className="w-3.5 h-3.5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                  </svg>
+                </div>
+                <div>
+                  <div className="text-emerald-300 text-sm font-semibold mb-2">Your CSV is ready to import into Awaken Tax</div>
+                  <ol className="text-[12px] text-emerald-300/80 leading-relaxed space-y-1.5 list-decimal list-inside">
+                    <li>Open <a href="https://awaken.tax" target="_blank" rel="noopener noreferrer" className="text-emerald-300 underline hover:text-emerald-200">Awaken Tax</a> and go to <span className="font-mono font-medium text-emerald-300">Imports &rarr; Custom CSV</span></li>
+                    <li>Upload the CSV file you just downloaded</li>
+                    <li>Columns are pre-mapped to Awaken&apos;s expected format — no manual mapping needed</li>
+                  </ol>
+                  <div className="mt-3 text-[11px] text-emerald-400/60">
+                    CSV columns: Date, Asset, Amount, Fee, P&amp;L, Payment Token, Notes, Transaction Hash, Tag
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Pre-export summary */}
+          {exportEvents.length > 0 && validationErrors.length === 0 && (
+            <div className="p-4 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] animate-fade-in">
+              <div className="text-[10px] font-mono font-medium tracking-widest uppercase text-[var(--text-tertiary)] mb-3">Export Preview</div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-2 text-[12px] font-mono">
+                <div>
+                  <span className="text-[var(--text-tertiary)]">Filename </span>
+                  <span className="text-[var(--text-secondary)] break-all">{batchMode ? "batch" : platform}-awakens{filterYear !== "all" ? `-${filterYear}` : ""}-*.csv</span>
+                </div>
+                <div>
+                  <span className="text-[var(--text-tertiary)]">Rows </span>
+                  <span className="text-[var(--accent)] font-semibold">{exportEvents.length}</span>
+                </div>
+                <div>
+                  <span className="text-[var(--text-tertiary)]">Range </span>
+                  <span className="text-[var(--text-secondary)]">
+                    {exportEvents[0]?.date.split(" ")[0] || "—"} — {exportEvents[exportEvents.length - 1]?.date.split(" ")[0] || "—"}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[var(--text-tertiary)]">Year </span>
+                  <span className="text-[var(--text-secondary)]">{filterYear === "all" ? "All" : filterYear}</span>
+                </div>
+              </div>
+              <div className="mt-2 text-[10px] font-mono text-[var(--text-tertiary)]">
+                Columns: Date, Asset, Amount, Fee, P&amp;L, Payment Token, Notes, Transaction Hash, Tag
+              </div>
+            </div>
+          )}
 
           {/* Summary statistics */}
           {summaryStats && (
@@ -1161,7 +1253,7 @@ export default function Home() {
               </div>
               <div className="p-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)]">
                 <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--text-tertiary)] mb-1">Tags</div>
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-wrap gap-2">
                   {Object.entries(summaryStats.tagCounts).map(([tag, count]) => {
                     const dotColors: Record<string, string> = {
                       open_position: "bg-blue-400",
@@ -1173,7 +1265,7 @@ export default function Home() {
                     return (
                       <span key={tag} className="inline-flex items-center gap-1 text-[10px] font-mono text-[var(--text-tertiary)]">
                         <span className={`w-1.5 h-1.5 rounded-full ${dotColors[tag] || "bg-zinc-500"}`} />
-                        {count}
+                        {count} {tag.replace(/_/g, " ")}
                       </span>
                     );
                   })}
@@ -1553,11 +1645,15 @@ export default function Home() {
                     <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
                   </svg>
                 </div>
-                <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-1.5">No events found</h3>
-                <p className="text-[12px] text-[var(--text-tertiary)] leading-relaxed mb-4">
-                  No protocol-defined accounting events were returned for this account.
-                  This may mean the account has no qualifying activity, or the address format may be incorrect.
+                <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-1.5">No qualifying events found</h3>
+                <p className="text-[12px] text-[var(--text-tertiary)] leading-relaxed mb-1">
+                  No exportable events were returned for this address. This usually means:
                 </p>
+                <ul className="text-[12px] text-[var(--text-tertiary)] leading-relaxed mb-4 space-y-0.5 text-left max-w-xs mx-auto">
+                  <li className="flex items-start gap-2"><span className="mt-[6px] w-1 h-1 rounded-full bg-[var(--text-tertiary)] flex-shrink-0" />The account has no staking rewards, trades, or slashing events</li>
+                  <li className="flex items-start gap-2"><span className="mt-[6px] w-1 h-1 rounded-full bg-[var(--text-tertiary)] flex-shrink-0" />The address format may not match this platform</li>
+                  <li className="flex items-start gap-2"><span className="mt-[6px] w-1 h-1 rounded-full bg-[var(--text-tertiary)] flex-shrink-0" />The account may be too new to have recorded activity</li>
+                </ul>
                 <div className="flex items-center justify-center gap-3">
                   <button
                     onClick={reset}
@@ -1589,7 +1685,10 @@ export default function Home() {
       <footer className="mt-20 pt-6 pb-2 border-t border-[var(--border-subtle)]">
         <div className="flex items-center justify-between text-[10px] font-mono text-[var(--text-tertiary)] tracking-wide">
           <span>Awakens Exporter &middot; Correctness-first accounting</span>
-          <span className="uppercase">Protocol events only</span>
+          <div className="flex items-center gap-3">
+            <a href="https://awaken.tax" target="_blank" rel="noopener noreferrer" className="hover:text-[var(--accent)] transition-colors">Awaken Tax</a>
+            <span className="uppercase">Protocol events only</span>
+          </div>
         </div>
       </footer>
     </main>
