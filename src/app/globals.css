@@ -726,3 +726,22 @@ html:not(.dark) .toast-error {
   border-color: var(--accent-border) !important;
   box-shadow: 0 0 0 1px var(--accent-border);
 }
+
+/* ─── Reduced Motion ─── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ─── Step Transition ─── */
+@keyframes fadeOut {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(-4px); }
+}
+.animate-fade-out {
+  animation: fadeOut 0.15s ease-in both;
+}

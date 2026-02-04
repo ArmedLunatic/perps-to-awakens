@@ -80,10 +80,35 @@ export default function Home() {
   // ─── Import guide "don't show again" ───
   const [importGuideDismissed, setImportGuideDismissed] = useState(false);
 
+  // ─── Batch dedup count ───
+  const [dedupCount, setDedupCount] = useState(0);
+
+  // ─── CSV preview modal ───
+  const [csvPreview, setCsvPreview] = useState<string | null>(null);
+
+  // ─── Shortcuts popover ───
+  const [showShortcuts, setShowShortcuts] = useState(false);
+
+  // ─── Step transitions ───
+  const [transitionStep, setTransitionStep] = useState<Step>("address");
+  const [isExiting, setIsExiting] = useState(false);
+
   // ─── Command palette state ───
   const [platformSearchOpen, setPlatformSearchOpen] = useState(false);
   const addressInputRef = useRef<HTMLInputElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  // ─── Smooth step transition ───
+  useEffect(() => {
+    if (step !== transitionStep) {
+      setIsExiting(true);
+      const timeout = setTimeout(() => {
+        setTransitionStep(step);
+        setIsExiting(false);
+      }, 150);
+      return () => clearTimeout(timeout);
+    }
+  }, [step, transitionStep]);
 
   // ─── Clear error state helper ───
   function clearError() {
@@ -262,8 +287,11 @@ export default function Home() {
         e.preventDefault();
         setPlatformSearchOpen((prev) => !prev);
       }
-      if (e.key === "Escape" && platformSearchOpen) {
-        setPlatformSearchOpen(false);
+      if (e.key === "Escape") {
+        if (platformSearchOpen) setPlatformSearchOpen(false);
+        if (showResetConfirm) setShowResetConfirm(false);
+        if (csvPreview) setCsvPreview(null);
+        if (showShortcuts) setShowShortcuts(false);
       }
       // Ctrl+Shift+E to export CSV on preview step
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "E" && step === "preview" && validationErrors.length === 0) {
@@ -273,7 +301,7 @@ export default function Home() {
     }
     document.addEventListener("keydown", handleGlobalKey);
     return () => document.removeEventListener("keydown", handleGlobalKey);
-  }, [step, platformSearchOpen, validationErrors.length]);
+  }, [step, platformSearchOpen, validationErrors.length, showResetConfirm, csvPreview, showShortcuts]);
 
   // ─── Actions ───
 
@@ -465,7 +493,8 @@ export default function Home() {
           mode: data.mode,
         };
         if (!data.error) {
-          allEvents = allEvents.concat(data.events);
+          const platName = PLATFORMS.find((p) => p.id === data.id)?.name || data.id;
+          allEvents = allEvents.concat(data.events.map((e: AwakensEvent) => ({ ...e, notes: e.notes ? `[${platName}] ${e.notes}` : `[${platName}]` })));
           // Offset validation error rows for merged view
           const offset = allEvents.length - data.events.length;
           allErrors = allErrors.concat(data.validationErrors.map((e) => ({ ...e, row: e.row + offset })));
@@ -488,6 +517,7 @@ export default function Home() {
       }
     });
 
+    setDedupCount(allEvents.length - deduped.length);
     setBatchResults(batchRes);
     setEvents(deduped);
     setValidationErrors(allErrors);
@@ -615,6 +645,9 @@ export default function Home() {
     setBatchProgress({});
     setShowImportGuide(false);
     setShowResetConfirm(false);
+    setDedupCount(0);
+    setCsvPreview(null);
+    setShowShortcuts(false);
   }
 
   // ─── Helpers ───
@@ -630,8 +663,14 @@ export default function Home() {
     return `${prefix}${s} ${paymentToken}`;
   }
 
+  const stepClass = isExiting ? "animate-fade-out" : "animate-fade-in-up";
+
   return (
-    <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-16">
+    <main id="main-content" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-16">
+      {/* Skip to content link for screen readers */}
+      <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[200] focus:px-4 focus:py-2 focus:bg-[var(--accent)] focus:text-white focus:rounded-md focus:text-sm focus:font-medium">
+        Skip to content
+      </a>
       {/* ─── Header ─── */}
       <div className="mb-8 sm:mb-14 animate-fade-in ambient-glow">
         <div className="relative z-10">
@@ -665,8 +704,8 @@ export default function Home() {
       </div>
 
       {/* ─── Step indicator ─── */}
-      {step !== "address" && (
-        <WizardStepIndicator currentStep={step} skipAuth={skipAuth} onNavigate={handleWizardNavigate} />
+      {transitionStep !== "address" && (
+        <WizardStepIndicator currentStep={transitionStep} skipAuth={skipAuth} onNavigate={handleWizardNavigate} />
       )}
 
       {/* ─── Error display ─── */}
@@ -675,8 +714,8 @@ export default function Home() {
       {/* ═══════════════════════════════════════════════════
           STEP 1: Address Input
          ═══════════════════════════════════════════════════ */}
-      {step === "address" && (
-        <div className="animate-fade-in-up">
+      {transitionStep === "address" && (
+        <div className={stepClass}>
           {/* Trust anchor */}
           <div className="mb-8 p-5 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)]">
             <div className="flex items-start gap-3.5">
@@ -874,8 +913,8 @@ export default function Home() {
       {/* ═══════════════════════════════════════════════════
           STEP 2: Platform Detection
          ═══════════════════════════════════════════════════ */}
-      {step === "detect" && (
-        <div className="animate-fade-in-up">
+      {transitionStep === "detect" && (
+        <div className={stepClass}>
           {/* Detected platforms */}
           {detectedPlatforms.length > 0 ? (
             <div className="mb-8">
@@ -949,6 +988,13 @@ export default function Home() {
                             </span>
                           </div>
                           <div className="text-[11px] text-[var(--text-tertiary)] leading-relaxed">{p.hint}</div>
+                          {PLATFORM_DOCS[p.id] && (
+                            <div className="text-[10px] font-mono mt-1.5 flex items-center gap-2">
+                              <span className="text-emerald-400/80">{PLATFORM_DOCS[p.id].supported.length} supported</span>
+                              <span className="text-[var(--text-tertiary)]">&middot;</span>
+                              <span className="text-red-400/60">{PLATFORM_DOCS[p.id].blocked.length} blocked</span>
+                            </div>
+                          )}
                           {p.requiresAuth && (
                             <div className="flex items-center gap-1.5 mt-2 text-[10px] text-amber-400/80">
                               <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -1011,8 +1057,8 @@ export default function Home() {
       {/* ═══════════════════════════════════════════════════
           STEP 3: Credentials
          ═══════════════════════════════════════════════════ */}
-      {step === "credentials" && (
-        <div className="max-w-lg space-y-6 animate-fade-in-up">
+      {transitionStep === "credentials" && (
+        <div className={`max-w-lg space-y-6 ${stepClass}`}>
           <div>
             <label className="block text-sm font-semibold text-[var(--text-primary)] mb-1.5">
               {platformName}
@@ -1123,17 +1169,17 @@ export default function Home() {
       {/* ═══════════════════════════════════════════════════
           STEP 4: Loading
          ═══════════════════════════════════════════════════ */}
-      {step === "loading" && (
+      {transitionStep === "loading" && (
         <LoadingStep platformName={platformName} onCancel={cancelFetch} batchProgress={batchMode ? batchProgress : undefined} />
       )}
 
       {/* ═══════════════════════════════════════════════════
           STEP 5: Preview + Export
          ═══════════════════════════════════════════════════ */}
-      {step === "preview" && (
-        <div className="space-y-6 animate-fade-in-up">
+      {transitionStep === "preview" && (
+        <div className={`space-y-6 ${stepClass}`}>
           {/* Stats bar */}
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-5 glow-line">
+          <div aria-live="polite" className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-5 glow-line">
             <div className="flex items-center gap-3 text-sm flex-wrap">
               <div className="font-mono">
                 <span className="text-[var(--accent)] font-bold text-lg">{eventCount}</span>
@@ -1190,12 +1236,16 @@ export default function Home() {
                   Start Over
                 </button>
                 {showResetConfirm && (
+                  <>
+                  {/* Click-outside overlay */}
+                  <div className="fixed inset-0 z-49" onClick={() => setShowResetConfirm(false)} />
                   <div className="absolute top-full mt-2 right-0 z-50 p-4 rounded-lg border border-[var(--border-medium)] bg-[var(--surface-1)] shadow-2xl shadow-black/30 animate-drop-in min-w-[240px]">
                     <p className="text-[12px] text-[var(--text-primary)] font-medium mb-3">
                       Discard {exportEvents.length} event{exportEvents.length !== 1 ? "s" : ""} and start over?
                     </p>
                     <div className="flex items-center gap-2">
                       <button
+                        autoFocus
                         onClick={() => { setShowResetConfirm(false); reset(); }}
                         className="px-3 py-1.5 text-[11px] font-semibold bg-red-500/90 text-white rounded-md hover:bg-red-500 transition-colors"
                       >
@@ -1209,6 +1259,7 @@ export default function Home() {
                       </button>
                     </div>
                   </div>
+                  </>
                 )}
               </div>
               {/* CSV export */}
@@ -1223,6 +1274,15 @@ export default function Home() {
                 </svg>
                 <span className="relative z-10">Export CSV</span>
                 <kbd className="hidden sm:inline-flex palette-kbd text-[9px] px-1 relative z-10 ml-1 opacity-70">Ctrl+Shift+E</kbd>
+              </button>
+              {/* Preview CSV */}
+              <button
+                onClick={() => setCsvPreview(generateCSV(exportEvents))}
+                disabled={validationErrors.length > 0}
+                title="Preview CSV output"
+                className="px-3 py-2 text-[11px] font-medium border border-[var(--border-subtle)] text-[var(--text-tertiary)] rounded-md hover:bg-[var(--surface-2)] hover:text-[var(--text-secondary)] disabled:opacity-20 disabled:cursor-not-allowed transition-all duration-200"
+              >
+                Preview
               </button>
               {/* Copy CSV to clipboard */}
               <button
@@ -1415,6 +1475,11 @@ export default function Home() {
           {batchMode && Object.keys(batchResults).length > 0 && (
             <div className="p-4 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] animate-fade-in">
               <div className="text-[10px] font-mono font-medium tracking-widest uppercase text-[var(--text-tertiary)] mb-3">Batch Results</div>
+              {dedupCount > 0 && (
+                <div className="text-[11px] font-mono text-[var(--text-tertiary)] mb-2">
+                  {dedupCount} duplicate event{dedupCount !== 1 ? "s" : ""} removed across platforms
+                </div>
+              )}
               <div className="space-y-1.5">
                 {Object.entries(batchResults).map(([id, result]) => {
                   const plat = PLATFORMS.find((p) => p.id === id);
@@ -1496,8 +1561,32 @@ export default function Home() {
                   <div className="text-[var(--text-tertiary)] pt-1">... and {validationErrors.length - 20} more</div>
                 )}
               </div>
-              <div className="mt-3 pt-3 border-t border-red-500/20 text-[11px] text-red-400/70">
-                Classification: SYSTEM-BLOCKED — This is a data integrity issue in the adapter output. No user action can resolve these errors.
+              <div className="mt-3 pt-3 border-t border-red-500/20">
+                <div className="text-[10px] font-mono uppercase tracking-wider text-red-400/50 mb-2">SYSTEM-BLOCKED — adapter data integrity issue</div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    onClick={() => setStep("detect")}
+                    className="px-3 py-1.5 text-[11px] font-medium border border-red-500/20 rounded-md text-red-400/80 hover:bg-red-500/10 transition-colors"
+                  >
+                    Try a different platform
+                  </button>
+                  <button
+                    onClick={() => setStep("address")}
+                    className="px-3 py-1.5 text-[11px] font-medium border border-red-500/20 rounded-md text-red-400/80 hover:bg-red-500/10 transition-colors"
+                  >
+                    Change address
+                  </button>
+                  <button
+                    onClick={() => {
+                      const summary = validationErrors.map((e) => `Row ${e.row}: [${e.field}] ${e.message} (value: ${e.value})`).join("\n");
+                      navigator.clipboard.writeText(summary);
+                      toast("Error details copied");
+                    }}
+                    className="px-3 py-1.5 text-[11px] font-medium border border-red-500/20 rounded-md text-red-400/80 hover:bg-red-500/10 transition-colors"
+                  >
+                    Copy error details
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -1574,8 +1663,13 @@ export default function Home() {
 
           {/* Search disambiguation note */}
           {searchQuery && filteredEvents.length > 0 && (
-            <div className="text-[11px] font-mono text-[var(--text-tertiary)] animate-fade-in">
-              Search filters the preview only. Export includes all {exportEvents.length} event{exportEvents.length !== 1 ? "s" : ""}.
+            <div className="flex items-center gap-2.5 px-4 py-2.5 rounded-lg bg-[var(--accent-dim)] border border-[var(--accent-border)] animate-fade-in">
+              <svg className="w-3.5 h-3.5 text-[var(--accent)] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
+              </svg>
+              <span className="text-[11px] font-mono text-[var(--accent)]">
+                Search filters the preview only. Export includes all {exportEvents.length} event{exportEvents.length !== 1 ? "s" : ""}.
+              </span>
             </div>
           )}
 
@@ -1775,12 +1869,72 @@ export default function Home() {
         onSelect={selectPlatform}
       />
 
+      {/* ─── CSV Preview Modal ─── */}
+      {csvPreview && (
+        <div className="palette-backdrop" onClick={() => setCsvPreview(null)}>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="CSV Preview"
+            className="fixed z-[101] top-[10vh] left-1/2 -translate-x-1/2 w-[calc(100%-32px)] max-w-3xl bg-[var(--palette-bg)] border border-[var(--glass-border)] rounded-xl shadow-2xl shadow-black/40 animate-drop-in max-h-[75vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--border-subtle)]">
+              <span className="text-[12px] font-mono font-medium text-[var(--text-primary)]">CSV Preview (first 15 rows)</span>
+              <button onClick={() => setCsvPreview(null)} className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]">
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                </svg>
+              </button>
+            </div>
+            <pre className="flex-1 overflow-auto px-5 py-4 text-[11px] font-mono text-[var(--text-secondary)] leading-relaxed whitespace-pre">
+              {csvPreview.split("\n").slice(0, 16).join("\n")}
+            </pre>
+            <div className="px-5 py-3 border-t border-[var(--border-subtle)] flex items-center justify-end gap-2">
+              <button
+                onClick={() => { setCsvPreview(null); downloadCSV(); }}
+                className="btn-primary relative px-4 py-2 bg-[var(--accent)] text-white rounded-lg font-semibold text-[12px] hover:brightness-110 transition-all duration-200"
+              >
+                <span className="relative z-10">Download CSV</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ─── Footer ─── */}
       <footer className="mt-20 pt-6 pb-2 border-t border-[var(--border-subtle)]">
         <div className="flex items-center justify-between text-[10px] font-mono text-[var(--text-tertiary)] tracking-wide">
-          <span>Awakens Exporter &middot; Correctness-first accounting</span>
+          <span>Awakens Exporter &middot; Correctness-first accounting &middot; {allReadyPlatforms.length} adapters</span>
           <div className="flex items-center gap-3">
+            <Link href="/platforms" className="hover:text-[var(--accent)] transition-colors">All platforms</Link>
             <a href="https://awaken.tax" target="_blank" rel="noopener noreferrer" className="hover:text-[var(--accent)] transition-colors">Awaken Tax</a>
+            <div className="relative">
+              <button onClick={() => setShowShortcuts(!showShortcuts)} className="hover:text-[var(--accent)] transition-colors">
+                Shortcuts
+              </button>
+              {showShortcuts && (
+                <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowShortcuts(false)} />
+                <div className="absolute bottom-full mb-2 right-0 z-50 p-4 rounded-lg border border-[var(--border-medium)] bg-[var(--surface-1)] shadow-2xl shadow-black/30 animate-drop-in min-w-[220px]">
+                  <div className="text-[10px] font-mono font-medium tracking-widest uppercase text-[var(--text-tertiary)] mb-3">Keyboard Shortcuts</div>
+                  <div className="space-y-2 text-[11px]">
+                    {[
+                      { keys: "Ctrl+K", label: "Search platforms" },
+                      { keys: "Ctrl+Shift+E", label: "Export CSV" },
+                      { keys: "Enter", label: "Submit" },
+                      { keys: "Escape", label: "Close overlays" },
+                    ].map((s) => (
+                      <div key={s.keys} className="flex items-center justify-between gap-4">
+                        <span className="text-[var(--text-secondary)]">{s.label}</span>
+                        <kbd className="palette-kbd text-[9px] px-1.5">{s.keys}</kbd>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                </>
+              )}
+            </div>
             <span className="uppercase">Protocol events only</span>
           </div>
         </div>

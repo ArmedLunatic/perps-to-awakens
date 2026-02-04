@@ -16,7 +16,7 @@ export default function ErrorAlert({
   if (!error) return null;
 
   return (
-    <div className={`mb-8 p-4 rounded-lg text-sm font-mono whitespace-pre-wrap animate-fade-in ${
+    <div role="alert" aria-live="assertive" className={`mb-8 p-4 rounded-lg text-sm font-mono whitespace-pre-wrap animate-fade-in ${
       classifiedError?.blockedByDesign
         ? "bg-zinc-500/10 border border-zinc-500/20 text-zinc-400"
         : classifiedError?.type === "rate-limit"

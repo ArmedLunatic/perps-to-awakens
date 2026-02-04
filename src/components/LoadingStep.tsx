@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { PLATFORMS } from "@/lib/data/platforms";
 
 export default function LoadingStep({
@@ -13,8 +14,26 @@ export default function LoadingStep({
 }) {
   const isBatch = batchProgress && Object.keys(batchProgress).length > 0;
 
+  // ─── Elapsed timer ───
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    const interval = setInterval(() => setElapsed((s) => s + 1), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const minutes = Math.floor(elapsed / 60);
+  const seconds = elapsed % 60;
+  const timerLabel = `${minutes}:${seconds.toString().padStart(2, "0")} elapsed`;
+
+  let statusHint: string | null = null;
+  if (elapsed >= 30) {
+    statusHint = "This is taking longer than usual";
+  } else if (elapsed >= 15) {
+    statusHint = "Still working \u2014 some chains have a lot of data";
+  }
+
   return (
-    <div className="animate-fade-in py-20 flex flex-col items-center justify-center gap-6">
+    <div role="status" aria-live="polite" className="animate-fade-in py-20 flex flex-col items-center justify-center gap-6">
       <div className="relative w-14 h-14">
         <div className="absolute inset-0 rounded-full border border-[var(--border-subtle)]" />
         <div className="absolute inset-1 rounded-full border border-[var(--border-subtle)] opacity-60" />
@@ -30,6 +49,16 @@ export default function LoadingStep({
         </div>
         {!isBatch && (
           <div className="text-[12px] font-mono text-[var(--text-tertiary)]">{platformName}</div>
+        )}
+
+        {/* Elapsed timer */}
+        <div className="mt-2 text-[11px] font-mono text-[var(--text-tertiary)]">
+          {timerLabel}
+        </div>
+        {statusHint && (
+          <div className="mt-1 text-[11px] text-[var(--text-tertiary)] animate-fade-in">
+            {statusHint}
+          </div>
         )}
 
         {isBatch && (
@@ -70,6 +99,19 @@ export default function LoadingStep({
             ))}
           </div>
         )}
+
+        {/* Skeleton preview */}
+        <div className="mt-6 opacity-30 border border-[var(--surface-1)] rounded-lg p-3 max-w-sm mx-auto">
+          {[0, 1, 2, 3].map((row) => (
+            <div key={row} className="flex items-center gap-3 py-1.5">
+              <div className="shimmer rounded h-3 w-[80px]" />
+              <div className="shimmer rounded h-3 w-[40px]" />
+              <div className="shimmer rounded h-3 w-[60px]" />
+              <div className="shimmer rounded h-3 w-[70px]" />
+            </div>
+          ))}
+        </div>
+
         <button
           onClick={onCancel}
           className="mt-4 px-4 py-2 text-[12px] font-medium border border-[var(--border-subtle)] rounded-md text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-2)] transition-all duration-200"
